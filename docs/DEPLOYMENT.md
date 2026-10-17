@@ -50,7 +50,15 @@ docker compose --env-file .env.external-db -f compose.external-db.yaml create
 docker network inspect qingwen_default --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
 ```
 
-按实际检查结果在 `pg_hba.conf` 中添加精确规则，例如 `host qingwen qingwen_app <实际应用Docker子网> scram-sha-256`，将占位符替换为上一步网段；不要放开所有数据库、角色或 `0.0.0.0/0`。通过现有 PostgreSQL 管理流程创建应用专用角色，授予该库与业务 schema 的必要权限；迁移角色还需具备建表、修改表等 DDL 权限。已有表若属于其他角色，还需核对对象所有权及迁移权限，不能仅授予连接权限。修改监听地址可能需要重启数据库，修改访问规则后重新加载配置。
+按实际检查结果在 `pg_hba.conf` 中添加精确规则，例如 `host qingwen qingwen_app <实际应用Docker子网> scram-sha-256`，将占位符替换为上一步网段；不要放开所有数据库、角色或 `0.0.0.0/0`。通过现有 PostgreSQL 管理流程创建应用专用角色，授予该库与业务 schema 的必要权限；迁移角色还需具备建表、修改表等 DDL 权限。首次迁移包含 `CREATE SCHEMA IF NOT EXISTS public`，还需要数据库级 `CREATE` 权限；仅授予 schema 内建表权限会导致 PostgreSQL 拒绝首次迁移。由数据库管理员执行（角色需先创建）：
+
+```sql
+GRANT CONNECT, CREATE ON DATABASE qingwen TO qingwen_app;
+-- 以下语句连接 qingwen 数据库后执行。
+GRANT USAGE, CREATE ON SCHEMA public TO qingwen_app;
+```
+
+已有表若属于其他角色，还需核对对象所有权及迁移权限，不能仅授予连接权限。修改监听地址可能需要重启数据库，修改访问规则后重新加载配置。
 
 **首次执行迁移前，先备份现有数据库并保存环境配置。** 在宿主机执行：
 
