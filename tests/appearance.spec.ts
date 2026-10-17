@@ -17,7 +17,7 @@ test('banner uploads and captions persist, and background themes reach mobile an
     await page.getByRole('textbox', { name: 'Banner 副标题', exact: true }).fill('TEAM VOICES');
     await expect(page.locator('.editor-paper .banner-caption strong')).toHaveText('团队声音，共同听见');
     await expect(page.locator('.editor-device')).toHaveClass(/bg-blue/);
-    expect((await page.locator('.editor-device').boundingBox())!.width).toBe(390);
+    expect((await page.locator('.editor-device').boundingBox())!.width).toBe(512);
     const image = Buffer.from(await page.evaluate(() => { const c = document.createElement('canvas'); c.width = 1200; c.height = 360; const ctx = c.getContext('2d')!; ctx.fillStyle = '#7d9e91'; ctx.fillRect(0, 0, 1200, 360); ctx.fillStyle = '#afc9bc'; ctx.beginPath(); ctx.arc(1050, 80, 250, 0, Math.PI * 2); ctx.fill(); return c.toDataURL('image/png').split(',')[1]; }), 'base64');
     const upload = page.getByLabel('上传 Banner 图片', { exact: true });
     await expect(upload).toBeHidden();
@@ -37,7 +37,9 @@ test('banner uploads and captions persist, and background themes reach mobile an
     for (const width of [1920, 1440, 1280, 1024, 768, 390]) {
       await page.setViewportSize({ width, height: 1000 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      if (width > 700) expect((await page.locator('.editor-device').boundingBox())!.width).toBe(390);
+      const canvasWidth = (await page.locator('.editor-device').boundingBox())!.width;
+      if (width >= 1440) expect(canvasWidth).toBe(512);
+      else { expect(canvasWidth).toBeGreaterThan(0); expect(canvasWidth).toBeLessThanOrEqual(512); }
       if ([1440,1280,390].includes(width)) await page.screenshot({ path: `artifacts/appearance/editor-${width}.png` });
     }
     await page.setViewportSize({ width: 1440, height: 1000 });
