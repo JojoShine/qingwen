@@ -10,7 +10,7 @@ export async function currentUser() {
   const token = (await cookies()).get(sessionCookie)?.value;
   if (!token) return null;
   const session = await db.session.findUnique({ where: { tokenHash: digest(token) }, include: { user: { select: publicUser } } });
-  return session && session.expiresAt > new Date() && session.user.active ? session.user : null;
+  return session && session.expiresAt > new Date() && session.user.active ? { ...session.user, isDemo: session.user.username === process.env.DEMO_USERNAME } : null;
 }
 export async function requireUser(admin = false) {
   const user = await currentUser();

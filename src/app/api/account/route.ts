@@ -5,6 +5,7 @@ import { body, handle, HttpError } from '@/lib/http';
 import { hashPassword, verifyPassword } from '@/lib/password';
 export function PATCH(req: Request) { return handle(req, async () => {
   const actor = await requireUser();
+  if (actor.isDemo) throw new HttpError(403, '体验账号不支持修改密码');
   const input = z.object({ currentPassword: z.string().max(128), password: z.string().min(8, '新密码至少 8 位').max(128) }).parse(await body(req));
   const user = await db.user.findUniqueOrThrow({ where: { id: actor.id } });
   if (!await verifyPassword(input.currentPassword, user.passwordHash)) throw new HttpError(422, '当前密码不正确');
