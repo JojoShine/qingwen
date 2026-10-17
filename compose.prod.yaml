@@ -1,6 +1,6 @@
 services:
   app:
-    image: ${QINGWEN_IMAGE:-docker.io/jojoshine/qingwen:latest}
+    image: ${QINGWEN_IMAGE:-ghcr.io/jojoshine/qingwen:latest}
     restart: unless-stopped
     stop_grace_period: 60s
     ports:

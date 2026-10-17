@@ -6,7 +6,7 @@
 
 ## 三步安装
 
-镜像已包含 PostgreSQL，安装时无需配置外部数据库。准备一台 **Linux x86_64** 机器，安装好 Docker、Docker Compose v2、`curl` 和 `openssl`。Docker 安装见[官方说明](https://docs.docker.com/engine/install/)。
+默认从 **GHCR** 拉取公开镜像，无需登录镜像仓库。镜像已包含 PostgreSQL，安装时无需配置外部数据库。准备一台 **Linux x86_64** 机器，安装好 Docker、Docker Compose v2、`curl` 和 `openssl`。Docker 安装见[官方说明](https://docs.docker.com/engine/install/)。
 
 以下仅用于**首次安装**；已有安装请看[升级](#更新镜像)。依次复制执行三组命令即可。
 
@@ -61,6 +61,18 @@ docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml logs --tai
 
 数据会自动保存在持久化卷中，正常更新容器不会丢失。后续操作按需查看：[升级](#更新镜像) · [备份](#备份) · [恢复或换机器](#换机器恢复) · [可选配置](#可选配置)。
 
+## 备用镜像源
+
+默认使用 GHCR，Docker Hub 提供相同版本的备用镜像。GHCR 无法连接时，在 `.env.docker` 设置下面这一行，再执行安装第三步的启动命令：
+
+```dotenv
+QINGWEN_IMAGE=docker.io/jojoshine/qingwen:latest
+```
+
+上述为根路径首次安装示例。`/surveys` 首次安装使用 `docker.io/jojoshine/qingwen:latest-surveys`。已有安装只将镜像地址中的 `ghcr.io/jojoshine/qingwen` 换成 `docker.io/jojoshine/qingwen`，保留原固定版本标签或摘要；不要借切换镜像源升级版本。切回 GHCR 时反向替换即可。
+
+两处均为包含 PostgreSQL 的同版本镜像，切换来源无需迁移数据库；保持原 `.env.docker` 中其他配置、Compose 项目名和数据卷不变。Compose 不会自动切换备用源，两个仓库的可达性均取决于服务器网络。
+
 ## 公网访问
 
 如果只在自己电脑试用，完成三步安装即可。对外发布问卷还需要一个已解析到服务器的域名和有效 HTTPS 证书。使用 Nginx 或已有反向代理，将该域名转发到 `127.0.0.1:3218`。
@@ -110,7 +122,7 @@ docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up -d --no
 
 ### 使用 `/surveys` 子路径
 
-默认安装从网站根路径访问。如果需要与其他业务共用域名的 `/surveys` 路径，在 `.env.docker` 加入 `QINGWEN_IMAGE=docker.io/jojoshine/qingwen:latest-surveys`，然后按[更新镜像](#更新镜像)重新拉取和启动。
+默认安装从网站根路径访问。如果需要与其他业务共用域名的 `/surveys` 路径，在 `.env.docker` 加入 `QINGWEN_IMAGE=ghcr.io/jojoshine/qingwen:latest-surveys`，然后按[更新镜像](#更新镜像)重新拉取和启动。
 
 将 [独立 Nginx 路径配置](../deploy/nginx/qingwen.conf.example)放入自己的配置目录，并在已有 HTTPS `server` 内 `include`。它会保留 `/surveys` 原始路径转发到 `127.0.0.1:3218`，无需新增同域名 `server`。本项目演示服务器的具体目录与加载方式放在文末[正式环境附录](#附录当前正式环境)。
 
@@ -250,7 +262,7 @@ docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up \
 | `ADMIN_USERNAME` | 首次创建的管理员账号，默认 `admin` |
 | `ADMIN_PASSWORD` | 管理员初始化密码，至少 8 位；没有默认密码 |
 | `ADMIN_NAME` | 管理员显示名称，默认“管理员” |
-| `QINGWEN_IMAGE` | 默认 `docker.io/jojoshine/qingwen:latest`；`/surveys` 使用 `latest-surveys` |
+| `QINGWEN_IMAGE` | 默认 `ghcr.io/jojoshine/qingwen:latest`；`/surveys` 使用 `latest-surveys`，Docker Hub 为备用源 |
 | `APP_BIND` / `APP_PORT` | 默认 `127.0.0.1:3218`，映射至应用容器 `3000`，适用于同机 Nginx |
 | `APP_URL` | 默认留空，分享地址自动跟随当前访问地址；需要固定时只填 origin，不带路径 |
 | `TRUSTED_CLIENT_IP_HEADER` | 默认空；需要 IP 次数限制时配置可信代理覆盖的单值请求头 |
@@ -261,7 +273,7 @@ docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up \
 需要在自己的域名下使用 `/surveys` 子路径时设置：
 
 ```dotenv
-QINGWEN_IMAGE=docker.io/jojoshine/qingwen:latest-surveys
+QINGWEN_IMAGE=ghcr.io/jojoshine/qingwen:latest-surveys
 APP_URL=
 ```
 
@@ -283,7 +295,7 @@ docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml down
 
 | 现象 | 检查方向 |
 | --- | --- |
-| 镜像拉取失败 | 检查 Docker Hub 网络、公开仓库及已发布标签，确认机器为 amd64 |
+| 镜像拉取失败 | 检查 GHCR 网络、公开仓库及已发布标签，确认机器为 amd64；必要时切换[备用镜像源](#备用镜像源) |
 | 启动失败或反复重启 | 查看 `logs app` 中 PostgreSQL、迁移或初始化错误；检查密码、卷权限和空间 |
 | 更新后数据为空 | 确认使用原 Compose 项目名和数据卷；旧外部数据库需显式导入备份 |
 | 修改数据库密码变量后连接失败 | 已有数据库卷不会按环境变量重设密码，需修改数据库角色密码并同步配置 |
@@ -465,18 +477,18 @@ docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up -d --no
 
 ## 镜像发布
 
-实际链路为：**提交 main → 源码构建、类型检查、接口和浏览器测试 → 构建内置 PostgreSQL 的镜像 → 单容器启动和数据恢复验证 → 发布 Docker Hub 并同步 GHCR**。服务器只拉取镜像，不上传源码或现场构建；当前没有自动 SSH 上线任务。
+实际链路为：**提交 main → 源码构建、类型检查、接口和浏览器测试 → 构建内置 PostgreSQL 的镜像 → 单容器启动和数据恢复验证 → 同时发布到 GHCR（默认安装源）和 Docker Hub（备用源）**。服务器只拉取镜像，不上传源码或现场构建；当前没有自动 SSH 上线任务。
 
 [CI 工作流](../.github/workflows/ci.yml) 分别构建根路径和 `/surveys` 两个变体，最终目标均为 `runner`。源码测试使用 CI 临时数据库；镜像验收只运行交付的单容器，验证自动迁移、管理员初始化、登录、问卷创建、正常停止、重建后数据和密码保留，以及备份恢复到空卷。验证成功才发布。
 
-| 用途 | Docker Hub 镜像 |
-| --- | --- |
-| 根路径 | `docker.io/jojoshine/qingwen:latest` |
-| `/surveys` | `docker.io/jojoshine/qingwen:latest-surveys` |
-| 固定提交，根路径 | `docker.io/jojoshine/qingwen:sha-<完整提交哈希>` |
-| 固定提交，`/surveys` | `docker.io/jojoshine/qingwen:sha-<完整提交哈希>-surveys` |
+| 用途 | GHCR 默认镜像 | Docker Hub 备用镜像 |
+| --- | --- | --- |
+| 根路径 | `ghcr.io/jojoshine/qingwen:latest` | `docker.io/jojoshine/qingwen:latest` |
+| `/surveys` | `ghcr.io/jojoshine/qingwen:latest-surveys` | `docker.io/jojoshine/qingwen:latest-surveys` |
+| 固定提交，根路径 | `ghcr.io/jojoshine/qingwen:sha-<完整提交哈希>` | `docker.io/jojoshine/qingwen:sha-<完整提交哈希>` |
+| 固定提交，`/surveys` | `ghcr.io/jojoshine/qingwen:sha-<完整提交哈希>-surveys` | `docker.io/jojoshine/qingwen:sha-<完整提交哈希>-surveys` |
 
-生产推荐固定提交标签或 `docker.io/jojoshine/qingwen@sha256:<digest>`，下载配置时也将 GitHub URL 的 `main` 换为相同提交。GHCR 保留相同标签副本，例如 `ghcr.io/jojoshine/qingwen:latest`；用户默认安装使用 Docker Hub。旧版标签可能不包含 PostgreSQL，不能用于新的单容器 Compose。
+生产推荐固定提交标签或 `ghcr.io/jojoshine/qingwen@sha256:<digest>`，下载配置时也将 GitHub URL 的 `main` 换为相同提交。安装默认使用 GHCR，Docker Hub 按[备用镜像源](#备用镜像源)手动切换。旧版标签可能不包含 PostgreSQL，不能用于新的单容器 Compose。
 
 维护者只需一个公开 Docker Hub 仓库 `jojoshine/qingwen`：
 
@@ -484,7 +496,7 @@ docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up -d --no
 2. 在 [GitHub Actions Variables](https://github.com/JojoShine/qingwen/settings/variables/actions) 设置 `DOCKERHUB_USERNAME=jojoshine`。
 3. 在 [GitHub Actions Secrets](https://github.com/JojoShine/qingwen/settings/secrets/actions) 设置 `DOCKERHUB_TOKEN`。不把令牌写进代码、环境示例或聊天。
 
-缺少 Hub 凭据或推送失败时发布任务失败，不会跳过 Hub。公开镜像可匿名拉取，安装用户不需要发布令牌；GHCR 副本需要维护者在 Packages 中确认 Public 可见性。
+缺少 Hub 凭据或推送失败时发布任务失败，不会跳过 Hub。公开镜像可匿名拉取，安装用户不需要发布令牌；GHCR 包需要维护者在 Packages 中确认 Public 可见性。
 
 自行构建仅在开发机或构建机执行：
 
@@ -524,7 +536,7 @@ docker build --target runner --build-arg NEXT_PUBLIC_BASE_PATH=/surveys -t qingw
 
 ### 本次镜像传输与后续发布
 
-默认从 Docker Hub 拉取。此次服务器直连 Docker Hub 超时，经确认通过 GHCR 副本及 `ghcr.nju.edu.cn` 缓存传输；传输前后核对了镜像索引、平台 manifest、配置摘要和提交标签，与 Docker Hub 发布版本一致。正式环境仍使用上表的 Docker Hub 固定标签，没有在服务器上传源码或构建镜像。
+上述正式环境切换时使用 Docker Hub 固定引用。当前仓库的新安装默认源已改为 GHCR，本次文档与配置调整未更改服务器的实际镜像引用。此次服务器直连 Docker Hub 超时，经确认通过 GHCR 副本及 `ghcr.nju.edu.cn` 缓存传输；传输前后核对了镜像索引、平台 manifest、配置摘要和提交标签，与 Docker Hub 发布版本一致。正式环境仍使用上表的 Docker Hub 固定标签，没有在服务器上传源码或构建镜像。
 
 本次核验值为：
 

@@ -6,7 +6,7 @@
 
 ## 三步安装
 
-镜像已包含 PostgreSQL，安装时无需配置外部数据库。准备一台 **Linux x86_64** 机器，安装好 Docker、Docker Compose v2、`curl` 和 `openssl`。Docker 安装见[官方说明](https://docs.docker.com/engine/install/)。
+默认从 **GHCR** 拉取公开镜像，无需登录镜像仓库。镜像已包含 PostgreSQL，安装时无需配置外部数据库。准备一台 **Linux x86_64** 机器，安装好 Docker、Docker Compose v2、`curl` 和 `openssl`。Docker 安装见[官方说明](https://docs.docker.com/engine/install/)。
 
 以下仅用于**首次安装**；已有安装请看[升级](docs/DEPLOYMENT.md#更新镜像)。依次复制执行三组命令即可。
 
@@ -58,6 +58,8 @@ SSH 转发用于自己登录试用。要让其他人访问或手机扫码填写�
 ```sh
 docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml logs --tail=100 app
 ```
+
+GHCR 无法连接时，可在 `.env.docker` 加入 `QINGWEN_IMAGE=docker.io/jojoshine/qingwen:latest`，再执行第三步。已有安装保留原版本标签；`/surveys` 部署保留 `-surveys` 后缀，见[备用镜像源](docs/DEPLOYMENT.md#备用镜像源)。
 
 数据会自动保存在持久化卷中，正常更新容器不会丢失。后续操作按需查看：[升级](docs/DEPLOYMENT.md#更新镜像) · [备份](docs/DEPLOYMENT.md#备份) · [恢复或换机器](docs/DEPLOYMENT.md#换机器恢复) · [可选配置](docs/DEPLOYMENT.md#可选配置)。
 
