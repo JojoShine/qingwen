@@ -1,6 +1,6 @@
 # 部署与运维
 
-本文提供 Docker 镜像部署和源码部署两条路径。当前 `tbtparent.me` 服务器使用 `/opt/qingwen` 下的镜像部署，复用本机原生 PostgreSQL 14.24 中已有的 `qingwen` 数据库；不启动生产数据库容器。新环境需要 PostgreSQL 数据库迁移和管理员初始化；用户、问卷、答卷、会话和 Banner 图片均存储在 PostgreSQL 中。
+本文提供 Docker 镜像部署和源码部署两条路径。面向用户的默认安装是从 Docker Hub 拉取轻问和官方 PostgreSQL 镜像，通过 `compose.prod.yaml` 一并启动，用户无需预装数据库。轻问镜像包含应用、迁移及管理员初始化工具；PostgreSQL 使用独立容器和持久化数据卷。用户、问卷、答卷、会话和 Banner 图片均存储在 PostgreSQL 中。
 
 ## 先看真实执行链路
 
@@ -10,7 +10,7 @@
 | Docker 全新安装 | `.env.docker`、`compose.prod.yaml` | 同一业务镜像运行 app/migrate，另启 PostgreSQL | 宿主机 `127.0.0.1:3218` → 应用容器 `3000`；数据库 `db:5432/survey` |
 | Docker 复用已有库 | `.env.external-db`、`compose.external-db.yaml` | 同一业务镜像运行 app/migrate；没有 `db` 服务 | 应用端口同上；数据库地址取自 `DATABASE_URL` |
 
-**当前正式环境**：第三种方案，宿主机数据库为 `qingwen`，应用使用 `/surveys` 构建变体，Nginx 将 `https://tbtparent.me/surveys` 代理至 `127.0.0.1:3218`。部署目录是 `/opt/qingwen`，独立 Nginx 业务文件是 `/etc/nginx/business/tbtparent-me/qingwen.conf`。
+**现有服务器的例外配置**：`tbtparent.me` 继续复用宿主机 PostgreSQL 14.24 中的 `qingwen` 库，使用 `/surveys` 构建变体，不启动新的数据库容器。Nginx 将 `https://tbtparent.me/surveys` 代理至 `127.0.0.1:3218`。部署目录是 `/opt/qingwen`，独立 Nginx 业务文件是 `/etc/nginx/business/tbtparent-me/qingwen.conf`。
 
 几个容易混淆的操作分别是：
 
@@ -33,9 +33,9 @@
 - 正式对外服务：域名、HTTPS 证书与反向代理。生产会话 Cookie 标记为 Secure，使用普通 HTTP 的远程地址无法正常保持登录。
 - 应用运行资源按问卷规模调整；镜像由 GitHub Actions 构建，生产服务器只拉取和运行镜像。
 
-GHCR 的 `qingwen` 镜像包应设置为公开可见，生产服务器可匿名拉取，无需保存 GitHub token。首次发布后，维护者需在 GitHub Packages 中确认包的可见性为 Public。
+用户安装默认使用公开的 Docker Hub 仓库 `jojoshine/qingwen` 和官方 `postgres`，无需登录或保存发布令牌。GHCR 仅作为同版本镜像副本；需要使用它时，维护者应确认 `qingwen` 包为 Public。
 
-Docker 本身可以拉取 GHCR，不要求业务镜像必须放在 Docker Hub。需要区分：CI 构建会从 Docker Hub 获取 `node:22-bookworm-slim` 基础镜像；使用 `db` 容器的部署会从 Docker Hub 获取 `postgres:17-alpine`；连接已有 PostgreSQL 的服务器只需要拉取已打包的统一业务镜像，无须另外下载 Node.js 镜像。下文提供把业务镜像同步发布到 Docker Hub 的配置，作为另一种下载渠道；网络可达性仍需在部署机器实际验证。
+默认完整部署使用两个 Docker Hub 镜像：`docker.io/jojoshine/qingwen` 运行应用和一次性迁移，`docker.io/library/postgres:17-alpine` 运行数据库。一个轻问仓库足够交付应用及迁移工具，数据库直接复用官方仓库；不需要另建或维护 PostgreSQL 业务镜像。下载 Compose 和环境模板仍需访问 GitHub，启动过程不构建源码。
 
 ### 安装 Docker 本身
 
@@ -53,7 +53,68 @@ Docker 能支持 ARM 不代表轻问已发布 ARM 镜像：当前 CI 只构建 `
 
 ## 二、Docker 镜像部署
 
-### 1. 已有 PostgreSQL：当前服务器使用此方案
+### 1. 默认安装：轻问与 PostgreSQL
+
+这是给用户的标准安装方案，会一并拉取轻问和 PostgreSQL 17 镜像，创建数据库容器及数据卷。已有数据库时使用下一节的可选方案。部署目录固定为 `/opt/qingwen`，只下载 Compose 和环境变量模板：
+
+```sh
+sudo mkdir -p /opt/qingwen
+sudo chown "$(id -u):$(id -g)" /opt/qingwen
+cd /opt/qingwen
+curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/compose.prod.yaml -o compose.prod.yaml
+curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/.env.docker.example -o .env.docker
+chmod 600 .env.docker
+```
+
+编辑 `.env.docker`：
+
+| 变量 | 用途 |
+| --- | --- |
+| `POSTGRES_PASSWORD` | 必填，数据库密码；建议 `openssl rand -hex 24` 生成，仅使用字母数字以便拼接连接 URL |
+| `APP_URL` | 可选，默认留空；分享链接和二维码自动使用当前浏览器的协议、域名/IP 和端口。需要固定时填写 origin，例如 `https://tbtparent.me`，不带路径；构建路径前缀自动附加 |
+| `APP_BIND` | 默认 `127.0.0.1`，宿主机监听地址；适用于同机反向代理 |
+| `APP_PORT` | 默认 `3218`，宿主机应用端口 |
+| `ADMIN_USERNAME` | 初始管理员账号，默认 `admin` |
+| `ADMIN_PASSWORD` | 管理员初始化所需密码，至少 8 位；无默认密码 |
+| `ADMIN_NAME` | 初始管理员显示名称，默认“管理员” |
+| `TRUSTED_CLIENT_IP_HEADER` | 默认空；需要 IP 次数限制时按下文配置可信代理 |
+| `QINGWEN_IMAGE` | 根路径默认 `docker.io/jojoshine/qingwen:latest`；部署 `/surveys` 时用 `docker.io/jojoshine/qingwen:latest-surveys` |
+
+Compose 自动组装容器内的 `DATABASE_URL`，不使用开发 `.env` 中指向 localhost 的数据库地址。若更换数据库密码，请同步修改数据库角色密码；修改环境变量不会重置已经初始化的数据卷。
+
+部署到 `https://tbtparent.me/surveys` 时设置：
+
+```dotenv
+QINGWEN_IMAGE=docker.io/jojoshine/qingwen:latest-surveys
+APP_URL=
+APP_BIND=127.0.0.1
+APP_PORT=3218
+```
+
+`NEXT_PUBLIC_BASE_PATH=/surveys` 在构建时写入该镜像，页面、静态资源、接口和分享地址使用同一前缀。给已编译的根路径镜像设置运行时 `NEXT_PUBLIC_BASE_PATH` 不会改变路径；必须选择对应的 `-surveys` 镜像。
+
+#### 拉取与启动
+
+```sh
+docker compose --env-file .env.docker -f compose.prod.yaml pull &&
+docker compose --env-file .env.docker -f compose.prod.yaml up -d --wait db &&
+docker compose --env-file .env.docker -f compose.prod.yaml run --rm --no-deps -T migrate </dev/null &&
+docker compose --env-file .env.docker -f compose.prod.yaml run --rm --no-deps -T migrate pnpm db:seed </dev/null &&
+docker compose --env-file .env.docker -f compose.prod.yaml up -d --no-deps --no-build --wait app
+docker compose --env-file .env.docker -f compose.prod.yaml ps -a
+```
+
+首次启动顺序为 PostgreSQL 健康 → 迁移成功 → 初始化管理员 → 应用启动。`app` 应显示 healthy；任何一步失败时 `&&` 链停止。管理员初始化命令可重复执行，已有同名账号的密码不会被覆盖。宿主机不发布数据库端口；数据库数据保存在 `survey_pgdata` 命名卷中。
+
+根路径镜像本机访问 <http://localhost:3218>；`-surveys` 镜像本机访问 <http://localhost:3218/surveys>。正式服务使用 HTTPS 域名，`APP_URL` 留空即可自动获取访问地址；localhost 链接无法从另一台设备扫码访问。
+
+```sh
+docker compose --env-file .env.docker -f compose.prod.yaml logs --tail=100 app migrate
+# 默认根路径镜像；/surveys 变体改为 /surveys/login。
+curl -I http://127.0.0.1:3218/login
+```
+
+### 2. 可选：连接已有 PostgreSQL
 
 使用 [compose.external-db.yaml](../compose.external-db.yaml) 和 [.env.external-db.example](../.env.external-db.example)，仅运行应用及迁移容器。数据库继续由宿主机的 PostgreSQL 服务管理，库名为 `qingwen`，端口为 `5432`。
 
@@ -71,7 +132,7 @@ chmod 600 .env.external-db
 ```dotenv
 # 将占位内容替换为应用专用角色与密码；密码中的特殊字符需要 URL 编码。
 DATABASE_URL=postgresql://qingwen_app:替换为数据库密码@host.docker.internal:5432/qingwen?schema=public
-QINGWEN_IMAGE=ghcr.io/jojoshine/qingwen:latest-surveys
+QINGWEN_IMAGE=docker.io/jojoshine/qingwen:latest-surveys
 APP_URL=
 APP_BIND=127.0.0.1
 APP_PORT=3218
@@ -120,72 +181,11 @@ docker compose --env-file .env.external-db -f compose.external-db.yaml logs --ta
 curl -I http://127.0.0.1:3218/surveys/login
 ```
 
-`&&` 确保先完成迁移和管理员初始化，再启动应用。`db:seed` 不会覆盖已有同名账号的密码，升级不需要重跑。`app` 应显示 healthy；再实际登录一次确认数据库和账号可用，单独的 `/login` 健康响应不能证明数据库查询成功。使用下文 Nginx 配置后，通过 `https://tbtparent.me/surveys/login` 登录。此方案的所有后续 Compose 命令均使用 `--env-file .env.external-db -f compose.external-db.yaml`；不要同时运行下面的新建数据库方案。
+`&&` 确保先完成迁移和管理员初始化，再启动应用。`db:seed` 不会覆盖已有同名账号的密码，升级不需要重跑。`app` 应显示 healthy；再实际登录一次确认数据库和账号可用，单独的 `/login` 健康响应不能证明数据库查询成功。使用下文 Nginx 配置后，通过 `https://tbtparent.me/surveys/login` 登录。此方案的所有后续 Compose 命令均使用 `--env-file .env.external-db -f compose.external-db.yaml`；不要同时运行默认的新建数据库方案。
 
-### 可选：登录页展示体验账号
+### 3. 可选：登录页展示体验账号
 
 先在用户管理中创建一个普通测试账号，再在部署环境文件中设置 `DEMO_USERNAME` 和 `DEMO_PASSWORD`，重建应用容器即可在登录页提供“填入体验账号”按钮。当前页面不把密码单独列成文字，但按钮能填入凭据，因此仍应把它视为公开体验账号。两项默认留空，均配置后才显示；这些配置不创建用户，也不重置密码。请勿配置管理员凭据。`DEMO_USERNAME` 同时标识体验账号：该账号不展示个人设置，直接访问设置页会返回问卷列表，修改密码接口也会拒绝请求。仅关闭体验入口时，清空 `DEMO_PASSWORD` 并保留 `DEMO_USERNAME`，重建应用后仍保留账号保护；清空两项会同时取消体验账号保护。需要停止测试时在用户管理中禁用该账号。
-
-### 2. 可选：新安装时使用 PostgreSQL 容器
-
-仅在没有现成 PostgreSQL 的新环境使用此方案；它会新建 PostgreSQL 17 容器及数据卷。当前服务器已有 `qingwen` 库，使用上一节。部署目录固定为 `/opt/qingwen`，只下载 Compose 和环境变量模板：
-
-```sh
-sudo mkdir -p /opt/qingwen
-sudo chown "$(id -u):$(id -g)" /opt/qingwen
-cd /opt/qingwen
-curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/compose.prod.yaml -o compose.prod.yaml
-curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/.env.docker.example -o .env.docker
-chmod 600 .env.docker
-```
-
-编辑 `.env.docker`：
-
-| 变量 | 用途 |
-| --- | --- |
-| `POSTGRES_PASSWORD` | 必填，数据库密码；建议 `openssl rand -hex 24` 生成，仅使用字母数字以便拼接连接 URL |
-| `APP_URL` | 可选，默认留空；分享链接和二维码自动使用当前浏览器的协议、域名/IP 和端口。需要固定时填写 origin，例如 `https://tbtparent.me`，不带路径；构建路径前缀自动附加 |
-| `APP_BIND` | 默认 `127.0.0.1`，宿主机监听地址；适用于同机反向代理 |
-| `APP_PORT` | 默认 `3218`，宿主机应用端口 |
-| `ADMIN_USERNAME` | 初始管理员账号，默认 `admin` |
-| `ADMIN_PASSWORD` | 管理员初始化所需密码，至少 8 位；无默认密码 |
-| `ADMIN_NAME` | 初始管理员显示名称，默认“管理员” |
-| `TRUSTED_CLIENT_IP_HEADER` | 默认空；需要 IP 次数限制时按下文配置可信代理 |
-| `QINGWEN_IMAGE` | 根路径默认 `ghcr.io/jojoshine/qingwen:latest`；部署 `/surveys` 时用 `ghcr.io/jojoshine/qingwen:latest-surveys` |
-
-Compose 自动组装容器内的 `DATABASE_URL`，不使用开发 `.env` 中指向 localhost 的数据库地址。若更换数据库密码，请同步修改数据库角色密码；修改环境变量不会重置已经初始化的数据卷。
-
-部署到 `https://tbtparent.me/surveys` 时设置：
-
-```dotenv
-QINGWEN_IMAGE=ghcr.io/jojoshine/qingwen:latest-surveys
-APP_URL=
-APP_BIND=127.0.0.1
-APP_PORT=3218
-```
-
-`NEXT_PUBLIC_BASE_PATH=/surveys` 在构建时写入该镜像，页面、静态资源、接口和分享地址使用同一前缀。给已编译的根路径镜像设置运行时 `NEXT_PUBLIC_BASE_PATH` 不会改变路径；必须选择对应的 `-surveys` 镜像。
-
-### 3. 容器数据库方案的拉取与启动
-
-```sh
-docker compose --env-file .env.docker -f compose.prod.yaml pull &&
-docker compose --env-file .env.docker -f compose.prod.yaml up -d --wait db &&
-docker compose --env-file .env.docker -f compose.prod.yaml run --rm --no-deps -T migrate </dev/null &&
-docker compose --env-file .env.docker -f compose.prod.yaml run --rm --no-deps -T migrate pnpm db:seed </dev/null &&
-docker compose --env-file .env.docker -f compose.prod.yaml up -d --no-deps --no-build --wait app
-docker compose --env-file .env.docker -f compose.prod.yaml ps -a
-```
-
-首次启动顺序为 PostgreSQL 健康 → 迁移成功 → 初始化管理员 → 应用启动。`app` 应显示 healthy；任何一步失败时 `&&` 链停止。管理员初始化命令可重复执行，已有同名账号的密码不会被覆盖。宿主机不发布数据库端口；数据库数据保存在 `survey_pgdata` 命名卷中。
-
-根路径镜像本机访问 <http://localhost:3218>；`-surveys` 镜像本机访问 <http://localhost:3218/surveys>。正式服务使用 HTTPS 域名，`APP_URL` 留空即可自动获取访问地址；localhost 链接无法从另一台设备扫码访问。
-
-```sh
-docker compose --env-file .env.docker -f compose.prod.yaml logs --tail=100 app migrate
-# /surveys 镜像；根路径镜像改为 /login。
-curl -I http://127.0.0.1:3218/surveys/login
-```
 
 ### 4. 发布流程与镜像版本
 
@@ -193,18 +193,18 @@ curl -I http://127.0.0.1:3218/surveys/login
 
 Dockerfile 只交付 `runner` 这一个最终镜像目标。根路径与 `/surveys` 因 Next.js 构建前缀不同，仍分别构建两个变体，但使用同一个镜像仓库，不再有迁移专用仓库或标签。应用容器端口保持 `3000`。
 
-CI 对每个变体使用临时 PostgreSQL，先从本次镜像执行两次迁移、两次初始化，再从同一镜像启动应用，验证原管理员密码未被覆盖及认证后的数据库查询。验证成功才发布该变体到 GHCR；配置 Hub 凭据后同时推送 Hub。PR 执行源码检查，`main` 推送或手动触发后执行镜像验证与发布。当前没有 `vX.Y.Z` 发布任务或自动 SSH 上线任务，推送 GitHub 不代表服务器已经更新。
+CI 对每个变体使用临时 PostgreSQL，先从本次镜像执行两次迁移、两次初始化，再从同一镜像启动应用，验证原管理员密码未被覆盖及认证后的数据库查询。验证成功才发布该变体到 Docker Hub，并同步到 GHCR。PR 执行源码检查，`main` 推送或手动触发后执行镜像验证与发布。当前没有 `vX.Y.Z` 发布任务或自动 SSH 上线任务，推送 GitHub 不代表服务器已经更新。
 
-| 用途 | GHCR 统一业务镜像 |
+| 用途 | 默认安装：Docker Hub 统一业务镜像 |
 | --- | --- |
-| 根路径，跟随主分支 | `ghcr.io/jojoshine/qingwen:latest` |
-| `/surveys`，跟随主分支 | `ghcr.io/jojoshine/qingwen:latest-surveys` |
-| 根路径，固定提交 | `ghcr.io/jojoshine/qingwen:sha-<完整提交哈希>` |
-| `/surveys`，固定提交 | `ghcr.io/jojoshine/qingwen:sha-<完整提交哈希>-surveys` |
+| 根路径，跟随主分支 | `docker.io/jojoshine/qingwen:latest` |
+| `/surveys`，跟随主分支 | `docker.io/jojoshine/qingwen:latest-surveys` |
+| 根路径，固定提交 | `docker.io/jojoshine/qingwen:sha-<完整提交哈希>` |
+| `/surveys`，固定提交 | `docker.io/jojoshine/qingwen:sha-<完整提交哈希>-surveys` |
 
 环境文件只需设置 `QINGWEN_IMAGE`，Compose 的 `app` 和 `migrate` 均引用它；后者明确覆盖命令为 `["pnpm", "db:migrate"]` 并关闭 HTTP 健康检查。管理员初始化仍为 `run --rm --no-deps -T migrate pnpm db:seed`。管理员密码仅注入初始化所用的一次性服务，不传给应用服务，也不写入镜像。
 
-生产推荐固定完整提交标签或 digest，并记录上一个镜像引用。下载 Compose 时也应匹配该提交：固定版本部署时，把下载 URL 中的 `main` 换成通过 CI 的完整提交 SHA。`latest` 是浮动标签；严格锁定镜像内容时使用 `ghcr.io/jojoshine/qingwen@sha256:<digest>`。
+生产推荐固定完整提交标签或 digest，并记录上一个镜像引用。下载 Compose 时也应匹配该提交：固定版本部署时，把下载 URL 中的 `main` 换成通过 CI 的完整提交 SHA。`latest` 是浮动标签；严格锁定镜像内容时使用 `docker.io/jojoshine/qingwen@sha256:<digest>`。
 
 #### Docker Hub 发布配置
 
@@ -215,16 +215,9 @@ CI 对每个变体使用临时 PostgreSQL，先从本次镜像执行两次迁移
 3. 在 [GitHub Actions Variables](https://github.com/JojoShine/qingwen/settings/variables/actions) 设置仓库变量 `DOCKERHUB_USERNAME=jojoshine`。
 4. 在 [GitHub Actions Secrets](https://github.com/JojoShine/qingwen/settings/secrets/actions) 设置仓库 Secret `DOCKERHUB_TOKEN`。不要把令牌写进 YAML、环境示例或聊天记录。
 
-凭据未配齐时，CI 会提示 Hub 尚未启用，仅发布 GHCR，这不代表 Hub 上已有镜像。启用后，工作流登录 GHCR 和 Hub，将同次构建的产物推送到两边。认证或推送失败时，该发布任务失败，需要处理后重跑。
+Docker Hub 是必需的发布目标。缺少上述用户名或令牌时发布任务直接失败，不再跳过 Hub 只发布 GHCR。工作流将同次构建的产物推送到 Hub 和 GHCR；认证或推送失败时，需要处理后重跑。用户部署不需要这些发布凭据。
 
-| 用途 | Docker Hub 统一业务镜像 |
-| --- | --- |
-| 根路径 | `docker.io/jojoshine/qingwen:latest` |
-| `/surveys` | `docker.io/jojoshine/qingwen:latest-surveys` |
-| 固定提交，根路径 | `docker.io/jojoshine/qingwen:sha-<完整提交哈希>` |
-| 固定提交，`/surveys` | `docker.io/jojoshine/qingwen:sha-<完整提交哈希>-surveys` |
-
-**首次 Hub 发布成功且确认仓库公开后**，将原环境文件中的 `QINGWEN_IMAGE` 改为对应 Hub 引用，使用匹配版本的 Compose，保留数据库连接、端口和 Nginx，然后按升级步骤拉取、迁移并启动。公开仓库的部署机器不需要保存发布用的写入令牌。
+GHCR 副本使用相同标签，例如 `ghcr.io/jojoshine/qingwen:latest`。已有部署切换 Docker Hub 时，在环境文件中设置上表的 `QINGWEN_IMAGE`，使用匹配版本的 Compose，保留数据库连接、端口和 Nginx，然后按升级步骤拉取、迁移并启动。
 
 #### 从旧的双镜像配置升级
 
@@ -277,8 +270,10 @@ server {
 只有后台访问地址与分享域名不同时，才需要设置 `APP_URL=https://survey.example.com` 固定分享地址；环境配置变更后重建应用容器：
 
 ```sh
-docker compose --env-file .env.external-db -f compose.external-db.yaml up -d --no-build app
+docker compose --env-file .env.docker -f compose.prod.yaml up -d --no-build app
 ```
+
+已有数据库方案使用 `.env.external-db` 和 `compose.external-db.yaml` 执行同一操作。
 
 #### 已有域名下的 `/surveys`
 
@@ -343,9 +338,9 @@ pnpm dev
 pnpm build && pnpm start
 ```
 
-这仍然是源码运行，不涉及 GHCR。`pnpm start` 使用已生成的 `.next` 构建产物并监听 `3218`；生产模式依赖 Secure Cookie，localhost 可用于本机验证，对外的域名或局域网 IP 应通过 HTTPS 访问。开发和生产构建不要在同一源码目录同时运行。
+这仍然是源码运行，不拉取应用镜像。`pnpm start` 使用已生成的 `.next` 构建产物并监听 `3218`；生产模式依赖 Secure Cookie，localhost 可用于本机验证，对外的域名或局域网 IP 应通过 HTTPS 访问。开发和生产构建不要在同一源码目录同时运行。
 
-下面是将源码部署到长期运行的服务器的步骤；采用 GHCR 镜像部署时，不需要执行本节的 Node.js、pnpm 和 systemd 命令。
+下面是将源码部署到长期运行的服务器的步骤；采用 Docker 镜像部署时，不需要执行本节的 Node.js、pnpm 和 systemd 命令。
 
 ### 1. 准备数据库
 
@@ -502,7 +497,7 @@ docker compose --env-file .env.external-db -f compose.external-db.yaml up -d --n
 
 恢复保留备份中的对象所有权，目标服务器需存在对应角色。应用专用角色的权限与对象所有权应与恢复后的结构匹配。停止应用容器不会停止宿主机数据库。
 
-### 可选容器数据库方案的备份
+### 默认容器数据库方案的备份
 
 ```sh
 mkdir -p backups
@@ -528,7 +523,7 @@ docker compose --env-file .env.docker -f compose.prod.yaml up -d --no-build
 
 | 现象 | 检查方向 |
 | --- | --- |
-| 镜像拉取失败 | 检查 GHCR、Docker Hub 网络、标签是否已发布，以及两个 GHCR 包是否公开；确认服务器为 amd64 |
+| 镜像拉取失败 | 检查 Docker Hub 网络、镜像标签是否已发布、`jojoshine/qingwen` 是否公开；确认服务器为 amd64 |
 | `/surveys` 下资源 404 | 确认选择 `-surveys` 镜像，代理保留 URI，且 `^~ /surveys/` 未被其他配置覆盖 |
 | 自行构建失败 | 仅开发构建需要访问 Docker Hub、Debian 和 npm，检查构建机网络与内存 |
 | pnpm 锁文件不兼容 | 使用 `packageManager` 指定的 pnpm 10.26.0，不删除锁文件绕过 |

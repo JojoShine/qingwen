@@ -1,6 +1,6 @@
 services:
   migrate:
-    image: ${QINGWEN_IMAGE:-ghcr.io/jojoshine/qingwen:latest}
+    image: ${QINGWEN_IMAGE:-docker.io/jojoshine/qingwen:latest}
     command: ["pnpm", "db:migrate"]
     restart: "no"
     healthcheck:
@@ -14,7 +14,7 @@ services:
       ADMIN_NAME: ${ADMIN_NAME:-管理员}
 
   app:
-    image: ${QINGWEN_IMAGE:-ghcr.io/jojoshine/qingwen:latest}
+    image: ${QINGWEN_IMAGE:-docker.io/jojoshine/qingwen:latest}
     restart: unless-stopped
     init: true
     extra_hosts:

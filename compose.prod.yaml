@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:17-alpine
+    image: docker.io/library/postgres:17-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: survey
@@ -15,7 +15,7 @@ services:
       retries: 20
 
   migrate:
-    image: ${QINGWEN_IMAGE:-ghcr.io/jojoshine/qingwen:latest}
+    image: ${QINGWEN_IMAGE:-docker.io/jojoshine/qingwen:latest}
     command: ["pnpm", "db:migrate"]
     restart: "no"
     healthcheck:
@@ -30,7 +30,7 @@ services:
         condition: service_healthy
 
   app:
-    image: ${QINGWEN_IMAGE:-ghcr.io/jojoshine/qingwen:latest}
+    image: ${QINGWEN_IMAGE:-docker.io/jojoshine/qingwen:latest}
     restart: unless-stopped
     init: true
     ports:

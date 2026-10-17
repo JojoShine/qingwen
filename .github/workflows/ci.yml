@@ -104,19 +104,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - name: Check Docker Hub configuration
-        id: hub
         env:
           DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Docker Hub publication is disabled. Configure DOCKERHUB_USERNAME (variable) and DOCKERHUB_TOKEN (secret) to enable it. GHCR publication remains enabled."
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "::error::Docker Hub publication requires DOCKERHUB_USERNAME (variable) and DOCKERHUB_TOKEN (secret)."
+            exit 1
           fi
       - name: Log in to Docker Hub
-        if: steps.hub.outputs.enabled == 'true'
         uses: docker/login-action@v3
         with:
           registry: docker.io
@@ -133,7 +129,6 @@ jobs:
           OWNER: ${{ github.repository_owner }}
           IMAGE: qingwen
           VARIANT: ${{ matrix.variant }}
-          HUB_ENABLED: ${{ steps.hub.outputs.enabled }}
           HUB_NAMESPACE: ${{ vars.DOCKERHUB_USERNAME }}
         run: |
           image_suffix=""
@@ -144,10 +139,8 @@ jobs:
             echo 'tags<<IMAGE_TAGS'
             echo "ghcr.io/${OWNER,,}/${IMAGE}:latest${image_suffix}"
             echo "ghcr.io/${OWNER,,}/${IMAGE}:sha-${GITHUB_SHA}${image_suffix}"
-            if [ "$HUB_ENABLED" = true ]; then
-              echo "docker.io/${HUB_NAMESPACE}/${IMAGE}:latest${image_suffix}"
-              echo "docker.io/${HUB_NAMESPACE}/${IMAGE}:sha-${GITHUB_SHA}${image_suffix}"
-            fi
+            echo "docker.io/${HUB_NAMESPACE}/${IMAGE}:latest${image_suffix}"
+            echo "docker.io/${HUB_NAMESPACE}/${IMAGE}:sha-${GITHUB_SHA}${image_suffix}"
             echo IMAGE_TAGS
           } >> "$GITHUB_OUTPUT"
       - name: Build unified image for verification

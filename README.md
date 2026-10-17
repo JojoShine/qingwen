@@ -35,54 +35,49 @@
 
 ## Docker 快速部署
 
-需要 Docker Engine / Docker Desktop 与 Docker Compose v2。服务器直接拉取 GitHub Actions 发布的公开镜像，无需下载源码或在服务器构建；默认使用 GHCR，配置 Docker Hub 发布凭据后也可使用 `docker.io/jojoshine/qingwen`。当前镜像支持 Linux amd64。
+默认安装包含轻问应用、数据库迁移和 PostgreSQL 17，使用 Docker Compose 成套部署。应用与迁移共用 [Docker Hub 镜像 `jojoshine/qingwen`](https://hub.docker.com/r/jojoshine/qingwen)，数据库使用 Docker Hub 官方镜像 `postgres:17-alpine`，通过命名卷持久化数据。PostgreSQL 单独运行在数据库容器中，不打包进轻问应用镜像；用户无需预先安装数据库，也无需下载源码或在服务器构建。
 
-Docker 安装见 [Linux Docker Engine](https://docs.docker.com/engine/install/) 或 [Docker Desktop](https://docs.docker.com/desktop/)。安装后先确认 `docker info` 和 `docker compose version` 均成功。Compose 使用 `docker compose` 命令。
+需要 Docker Engine / Docker Desktop 与 Docker Compose v2，当前发布镜像支持 Linux amd64。Docker 安装见 [Linux Docker Engine](https://docs.docker.com/engine/install/) 或 [Docker Desktop](https://docs.docker.com/desktop/)。先确认 `docker info` 和 `docker compose version` 均成功。
 
-### 先选对部署方式
+### 默认安装：自带 PostgreSQL
 
-| 场景 | 使用的文件 | 应用在哪里运行 | 数据库在哪里 |
-| --- | --- | --- | --- |
-| 本地源码开发 | `.env`、`compose.yaml`（可选） | 本机 Node.js，端口 `3218` | 本地数据库容器通过 `127.0.0.1:5436` 访问，或已有 PostgreSQL |
-| Docker 全新安装 | `.env.docker`、`compose.prod.yaml` | GHCR 应用镜像，宿主机 `127.0.0.1:3218` → 容器 `3000` | Compose 自带 PostgreSQL，应用连接 `db:5432` |
-| Docker 连接已有数据库 | `.env.external-db`、`compose.external-db.yaml` | 同上 | `DATABASE_URL` 指定的 PostgreSQL；当前正式环境使用宿主机的 `qingwen` 库 |
-
-这三个 Compose 文件分别独立使用，不能把 `compose.yaml` 当成全栈容器部署，也不需要合并运行。以下是**已有数据库**方案；在自己电脑从零体验 Docker 版本，使用[全新安装步骤](docs/DEPLOYMENT.md#2-可选新安装时使用-postgresql-容器)。
-
-实际发布链路：**提交 main → GitHub CI 检查与测试 → 构建包含应用与迁移工具的业务镜像 → 推送 GHCR（配置后同时推送 Docker Hub）→ 部署人员在服务器拉取 → 迁移 → 启动应用 → Nginx 提供 HTTPS**。当前工作流不自动 SSH 部署服务器；首次管理员初始化是另外一次显式操作。
-
-Docker Hub 由仓库 Actions 变量 `DOCKERHUB_USERNAME=jojoshine` 和 Secret `DOCKERHUB_TOKEN` 启用，配置方法与 Hub 镜像标签见[Docker Hub 发布说明](docs/DEPLOYMENT.md#docker-hub-发布配置)。凭据未配齐时，工作流明确提示跳过 Hub，继续发布 GHCR；只有 Hub 首次发布成功后，才能把部署环境中的 `QINGWEN_IMAGE`切换到 Hub。
-
-已有 PostgreSQL 时使用以下配置。当前 `tbtparent.me` 服务器复用本机原生 PostgreSQL 的 `qingwen` 数据库，不启动数据库容器：
+只下载 [compose.prod.yaml](compose.prod.yaml) 和 [.env.docker.example](.env.docker.example)：
 
 ```sh
 sudo mkdir -p /opt/qingwen
 sudo chown "$(id -u):$(id -g)" /opt/qingwen
 cd /opt/qingwen
-curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/compose.external-db.yaml -o compose.external-db.yaml
-curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/.env.external-db.example -o .env.external-db
-chmod 600 .env.external-db
+curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/compose.prod.yaml -o compose.prod.yaml
+curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/.env.docker.example -o .env.docker
+chmod 600 .env.docker
 ```
 
-编辑 `.env.external-db`：填写 `DATABASE_URL` 和至少 8 位的 `ADMIN_PASSWORD`。连接本机数据库使用 `host.docker.internal:5432/qingwen`；配置已通过 `host-gateway` 将该主机名映射到宿主机。为应用使用专用数据库角色，并仅允许实际应用 Docker 子网访问；首次迁移前先备份已有 `qingwen` 库，详见 [部署文档](docs/DEPLOYMENT.md)。
-
-部署到已有域名的 `https://tbtparent.me/surveys` 时，将 `QINGWEN_IMAGE` 设置为 `ghcr.io/jojoshine/qingwen:latest-surveys`，应用与迁移服务均使用该镜像。`APP_URL` 默认留空；需要固定分享域名时填写不带路径的 origin。路径已在镜像构建时写入，不能通过运行时环境变量修改。
+编辑 `.env.docker`，填写 `POSTGRES_PASSWORD`（建议用 `openssl rand -hex 24` 生成）和至少 8 位的 `ADMIN_PASSWORD`。默认 `QINGWEN_IMAGE=docker.io/jojoshine/qingwen:latest`，应用从根路径访问；`APP_URL` 留空即可自动获取当前访问地址。
 
 ```sh
-docker compose --env-file .env.external-db -f compose.external-db.yaml pull &&
-docker compose --env-file .env.external-db -f compose.external-db.yaml run --rm --no-deps -T migrate </dev/null &&
-docker compose --env-file .env.external-db -f compose.external-db.yaml run --rm --no-deps -T migrate pnpm db:seed </dev/null &&
-docker compose --env-file .env.external-db -f compose.external-db.yaml up -d --no-deps --no-build --wait app
-docker compose --env-file .env.external-db -f compose.external-db.yaml ps -a
+docker compose --env-file .env.docker -f compose.prod.yaml pull &&
+docker compose --env-file .env.docker -f compose.prod.yaml up -d --wait db &&
+docker compose --env-file .env.docker -f compose.prod.yaml run --rm --no-deps -T migrate </dev/null &&
+docker compose --env-file .env.docker -f compose.prod.yaml run --rm --no-deps -T migrate pnpm db:seed </dev/null &&
+docker compose --env-file .env.docker -f compose.prod.yaml up -d --no-deps --no-build --wait app
+docker compose --env-file .env.docker -f compose.prod.yaml ps -a
 ```
 
-上述 `&&` 链在任一步失败时停止。应用默认仅绑定 `127.0.0.1:3218`；对外服务配置 HTTPS 反向代理后，通过域名登录。`migrate` 使用同一镜像执行 `pnpm db:migrate`，成功后再启动 `app`；`db:seed` 仅首次初始化管理员，升级时不需要再执行，且不会覆盖已有密码。Nginx 配置示例见 [deploy/nginx/qingwen.conf.example](deploy/nginx/qingwen.conf.example)。
+执行顺序为：从 Docker Hub 拉取应用和数据库镜像 → PostgreSQL 健康 → 迁移 → 初始化管理员 → 启动应用。`&&` 在任一步失败时停止。`db:seed` 仅首次初始化管理员，升级时无需再执行，不覆盖已有密码；镜像构建和应用启动不会自动生成账号或演示数据。
 
-没有现成数据库的新安装，可选择 [compose.prod.yaml](compose.prod.yaml) 与 [.env.docker.example](.env.docker.example)，填写 `POSTGRES_PASSWORD` 和 `ADMIN_PASSWORD` 后，按部署文档依次拉取镜像、启动 `db` 并等健康、运行迁移、初始化管理员、启动 `app`。该方案另启 PostgreSQL 17 容器并使用命名卷保存数据。根路径镜像为 `ghcr.io/jojoshine/qingwen:latest`，本机访问 <http://localhost:3218/login>。完整安装、固定版本、升级与备份见 [部署文档](docs/DEPLOYMENT.md)。
+本机访问 <http://localhost:3218/login>。应用默认仅监听 `127.0.0.1:3218`，数据库不向宿主机发布端口，数据保存在 `survey_pgdata` 命名卷中。正式对外服务需配置 HTTPS 反向代理；停止服务时保留数据卷。部署 `/surveys` 时选择 `docker.io/jojoshine/qingwen:latest-surveys`，路径前缀在构建时写入，不能通过运行时变量修改。
+
+### 可选：连接已有 PostgreSQL
+
+已有数据库时改用 [compose.external-db.yaml](compose.external-db.yaml) 和 [.env.external-db.example](.env.external-db.example)，填写 `DATABASE_URL`，按[已有数据库步骤](docs/DEPLOYMENT.md#2-可选连接已有-postgresql)执行。这一路径仍从 Docker Hub 拉取轻问镜像，但不启动数据库容器。当前 `tbtparent.me` 服务器使用此方案，继续保留已有的 `qingwen` 库。
+
+本地源码开发使用 `.env` 和 `compose.yaml`，后者只启动开发数据库。这三个 Compose 文件分别独立使用，不合并运行。
+
+实际发布链路：**提交 main → GitHub CI 检查与测试 → 构建并验证统一业务镜像及配套 PostgreSQL → 发布 Docker Hub，同时同步 GHCR → 用户拉取镜像 → 迁移并启动**。Docker Hub 是面向用户的默认下载渠道，GHCR 保留为镜像副本。发布凭据配置、固定版本、Nginx、升级与备份见[部署文档](docs/DEPLOYMENT.md)。推送 GitHub 不会自动更新服务器。
 
 ## 本地开发
 
-需要 Node.js 22.12+、pnpm 10.26.0，以及 PostgreSQL（本地配套容器为 17）。此路径是**本机运行应用、Docker 只运行数据库**，不拉取 GHCR 应用镜像。
+需要 Node.js 22.12+、pnpm 10.26.0，以及 PostgreSQL（本地配套容器为 17）。此路径是**本机运行应用、Docker 只运行数据库**，不拉取已发布的应用镜像。
 
 ```sh
 git clone https://github.com/JojoShine/qingwen.git
@@ -151,8 +146,8 @@ prisma/               Schema、迁移、管理员初始化与示例数据
 tests/                接口与浏览器验收
 Dockerfile            包含应用、迁移与管理员初始化的统一 runner 镜像
 compose.yaml          本地开发 PostgreSQL
-compose.external-db.yaml  GHCR 镜像部署：复用已有 PostgreSQL
-compose.prod.yaml         可选新安装：应用、迁移与 PostgreSQL
+compose.external-db.yaml  可选：Docker Hub 镜像连接已有 PostgreSQL
+compose.prod.yaml         默认 Docker Hub 安装：应用、迁移与 PostgreSQL
 deploy/nginx/         已有域名下 /surveys 的 Nginx 配置示例
 docs/DEPLOYMENT.md    Docker / 源码部署与运维
 ```
