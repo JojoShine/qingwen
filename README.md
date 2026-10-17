@@ -2,7 +2,64 @@
 
 一个以轻量、易用为目标的开源问卷系统。使用 Next.js、Ant Design 和 PostgreSQL，前后台在同一项目中，覆盖问卷创建、发布、填写与结果管理。
 
-[MIT 许可证](LICENSE) · [部署文档](docs/DEPLOYMENT.md) · [参与贡献](CONTRIBUTING.md) · [问题反馈](https://github.com/JojoShine/qingwen/issues)
+[在线体验](https://tbtparent.me/surveys/login) · [MIT 许可证](LICENSE) · [部署文档](docs/DEPLOYMENT.md) · [参与贡献](CONTRIBUTING.md) · [问题反馈](https://github.com/JojoShine/qingwen/issues)
+
+## 三步安装
+
+镜像已包含 PostgreSQL，安装时无需配置外部数据库。准备一台 **Linux x86_64** 机器，安装好 Docker、Docker Compose v2、`curl` 和 `openssl`。Docker 安装见[官方说明](https://docs.docker.com/engine/install/)。
+
+以下仅用于**首次安装**；已有安装请看[升级](docs/DEPLOYMENT.md#更新镜像)。依次复制执行三组命令即可。
+
+### 1. 下载部署文件
+
+```sh
+sudo mkdir -p /opt/qingwen
+sudo chown "$(id -u):$(id -g)" /opt/qingwen
+cd /opt/qingwen
+curl -fSL https://raw.githubusercontent.com/JojoShine/qingwen/main/compose.prod.yaml -o compose.prod.yaml
+```
+
+### 2. 自动生成账号密码
+
+```sh
+(
+  umask 077
+  set -C
+  printf 'POSTGRES_PASSWORD=%s\nADMIN_USERNAME=admin\nADMIN_PASSWORD=%s\n' \
+    "$(openssl rand -hex 24)" "$(openssl rand -hex 16)" > .env.docker
+)
+sed -n '/^ADMIN_/p' .env.docker
+```
+
+保存终端显示的账号和密码。配置保存在 `.env.docker`，已有文件会拒绝覆盖，不要删除它重新生成。
+
+### 3. 启动轻问
+
+```sh
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml pull &&
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up \
+  -d --no-build --pull never --wait --wait-timeout 180
+```
+
+启动时自动完成数据库初始化、建表和管理员创建。命令成功后：
+
+- **装在自己的电脑上**：打开 <http://localhost:3218/login>，输入第二步的账号密码。
+- **装在远程服务器上**：在自己的电脑另开终端执行下面的 SSH 转发，保持终端打开，再访问同一个 localhost 地址。
+
+```sh
+# 替换为你自己的服务器账号和 IP，在自己的电脑上执行。
+ssh -N -L 3218:127.0.0.1:3218 用户名@服务器IP
+```
+
+SSH 转发用于自己登录试用。要让其他人访问或手机扫码填写，请为服务器配置 **HTTPS 域名**，反向代理到 `127.0.0.1:3218`，见[公网访问](docs/DEPLOYMENT.md#公网访问)。默认不开放公网端口，不能直接用服务器的 HTTP IP 地址登录。
+
+遇到启动问题，查看日志：
+
+```sh
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml logs --tail=100 app
+```
+
+数据会自动保存在持久化卷中，正常更新容器不会丢失。后续操作按需查看：[升级](docs/DEPLOYMENT.md#更新镜像) · [备份](docs/DEPLOYMENT.md#备份) · [恢复或换机器](docs/DEPLOYMENT.md#换机器恢复) · [可选配置](docs/DEPLOYMENT.md#可选配置)。
 
 ## 业务能力
 
@@ -33,52 +90,6 @@
 
 不需要 Redis、对象存储或独立后端服务。普通账号由管理员创建，当前不提供公开注册、多租户、多人协作、复杂跳题、考试计分或答题附件上传。
 
-## Docker 快速部署
-
-[Docker Hub 镜像 `jojoshine/qingwen`](https://hub.docker.com/r/jojoshine/qingwen) 内置 **轻问应用、PostgreSQL 17、迁移与管理员初始化工具**。一个镜像、一个容器即可运行，无需预装或另起数据库服务，无需源码构建。首次启动自动建库、迁移并创建管理员；后续启动只应用新增迁移，不覆盖已有管理员密码。
-
-数据库数据保存在独立持久化卷中，不随容器删除而丢失。迁移到另一台机器时，带上环境配置和数据库备份即可恢复用户、问卷、答卷及 Banner。
-
-需要 Docker Engine / Docker Desktop 与 Docker Compose v2，当前发布镜像支持 Linux amd64。Docker 安装见 [Linux Docker Engine](https://docs.docker.com/engine/install/) 或 [Docker Desktop](https://docs.docker.com/desktop/)。先确认 `docker info` 和 `docker compose version` 均成功。
-
-### 安装与启动
-
-只下载 [compose.prod.yaml](compose.prod.yaml) 和 [.env.docker.example](.env.docker.example)：
-
-```sh
-sudo mkdir -p /opt/qingwen
-sudo chown "$(id -u):$(id -g)" /opt/qingwen
-cd /opt/qingwen
-curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/compose.prod.yaml -o compose.prod.yaml
-curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/.env.docker.example -o .env.docker
-chmod 600 .env.docker
-```
-
-编辑 `.env.docker`，填写 `POSTGRES_PASSWORD`（可用 `openssl rand -hex 24` 生成）和至少 8 位的 `ADMIN_PASSWORD`。默认 `QINGWEN_IMAGE=docker.io/jojoshine/qingwen:latest`，`APP_URL` 留空即可自动获取当前访问地址。不要设置 `DATABASE_URL`，容器自动连接内置数据库。
-
-```sh
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml pull &&
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up -d --no-build --wait
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml ps
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml logs --tail=100 app
-```
-
-本机访问 <http://localhost:3218/login>，使用配置的管理员账号和密码。默认仅监听 `127.0.0.1:3218`，正式对外服务需配置 HTTPS 反向代理。内置 PostgreSQL 仅监听容器内部 loopback；数据挂载到 Compose 的 `qingwen_data` 卷，固定项目名 `qingwen` 后实际卷名为 `qingwen_qingwen_data`。停止服务使用 `down`，保留数据卷，不使用 `down -v`。
-
-部署 `/surveys` 时选择 `docker.io/jojoshine/qingwen:latest-surveys`，路径前缀在构建时写入，不能通过运行时变量修改。公开安装镜像默认从 Docker Hub 获取，GHCR 保留同版本副本。GitHub CI 验证单容器启动、重建保留数据和备份恢复后才发布镜像；推送 GitHub 不会自动更新服务器。
-
-**已有部署升级需注意**：旧版独立 PostgreSQL 容器或宿主机数据库的数据不会自动搬入新卷。先备份，再按[迁入内置数据库](docs/DEPLOYMENT.md#四迁入内置数据库)步骤导入。正式环境已完成这一迁移；宿主机旧库仅保留作回退依据，不再承担应用读写。旧外部数据库配置只用于尚未迁移的历史部署。
-
-### 当前正式环境
-
-[正式入口](https://tbtparent.me/surveys/login) 已于 **2026-10-18（北京时间）** 切换为内置 PostgreSQL 的单容器部署，目录为 `/opt/qingwen`，实际使用 `compose.prod.yaml` 与 `.env.docker`。当前固定版本为 `56260bca01fa839109d75e4e539170b6eeb1ce61` 的 `-surveys` 镜像；原账号、问卷和答卷已迁移并逐表核对。`/surveys` 路径、`127.0.0.1:3218` 端口及原独立 Nginx 配置保持不变。
-
-Docker Hub 是默认镜像来源。本次正式切换因直连超时，经确认使用与 Docker Hub 摘要一致的 GHCR 副本传输；部署配置仍固定为 Docker Hub 发布标签。后续文档提交或镜像发布不会自动更新正式服务器，实际运行版本以服务器 `release.json` 和容器状态为准。
-
-日常升级：先[备份数据库与配置](docs/DEPLOYMENT.md#备份)，固定目标版本，再拉取并重建同一容器；入口自动迁移，不再单独执行迁移或初始化命令。恢复：先停止应用，再通过同一镜像的 `app restore` 导入备份，成功后启动。完整的[安装、备份、恢复与升级流程](docs/DEPLOYMENT.md#五备份换机恢复与升级)包含命令、校验及回退说明。
-
-安装、备份、换机恢复、固定版本和独立 Nginx 配置见[部署文档](docs/DEPLOYMENT.md)。本地源码开发仍使用 `.env` 和 `compose.yaml`，后者只启动开发数据库，与用户的单容器安装分开。
-
 ## 本地开发
 
 需要 Node.js 22.12+、pnpm 10.26.0，以及 PostgreSQL（本地配套容器为 17）。此路径是**本机运行应用、Docker 只运行数据库**，不拉取已发布的应用镜像。
@@ -105,7 +116,7 @@ pnpm dev
 
 访问 <http://localhost:3218/login>，使用 `.env` 中配置的管理员账号和密码登录，没有通用默认密码。`db:generate` 生成 Prisma 客户端，`db:migrate` 建表或升级表结构，`db:seed` 创建管理员；`pnpm dev` 不会替你执行这三步。可选执行 `pnpm db:demo` 生成五份标有【示例】的问卷及示例答卷；该命令幂等，不覆盖自行创建的问卷，也不会创建体验用户。开发数据库默认密码只供本地使用。
 
-本地运行正式构建时，先停止开发服务器，再执行 `pnpm build && pnpm start`；源码生产部署及 systemd 步骤见[部署文档](docs/DEPLOYMENT.md#三源码部署)。
+本地运行正式构建时，先停止开发服务器，再执行 `pnpm build && pnpm start`；源码生产部署及 systemd 步骤见[部署文档](docs/DEPLOYMENT.md#源码部署)。
 
 ## 使用流程
 
@@ -156,6 +167,8 @@ deploy/docker/        单容器启动、进程退出与备份恢复入口
 deploy/nginx/         已有域名下 /surveys 的 Nginx 配置示例
 docs/DEPLOYMENT.md    Docker / 源码部署与运维
 ```
+
+正式环境已切换到内置 PostgreSQL，保留 `/surveys` 访问路径。部署版本和迁移记录见[正式环境记录](docs/DEPLOYMENT.md#附录当前正式环境)。
 
 ## 开源协议
 

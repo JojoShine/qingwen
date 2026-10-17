@@ -1,156 +1,71 @@
-# 部署与运维
+# 安装与部署
 
-标准交付为 Docker Hub 上的单镜像 `docker.io/jojoshine/qingwen`，内部包含轻问应用、PostgreSQL 17、迁移和管理员初始化工具。一个容器即可运行，不依赖宿主机或另一个容器提供数据库；Compose 仅用于管理该容器、端口和持久化卷。
+**第一次安装只需要下面三步。** 镜像内置 PostgreSQL，不需要下载源码、安装 Node.js 或单独准备数据库。
 
-用户、问卷、答卷、会话和 Banner 图片保存在 PostgreSQL 数据卷中。镜像包含数据库程序，不包含用户数据或预设账号密码。源码开发仍可连接独立的本地 PostgreSQL，与标准镜像部署分开。
+已安装的用户按需查看：[升级](#更新镜像) · [备份](#备份) · [恢复](#恢复到现有安装) · [换机器](#换机器恢复) · [公网访问](#公网访问)。
 
-## 当前正式环境
+## 三步安装
 
-以下状态于 **2026-10-18 00:39（Asia/Shanghai）** 完成切换，并通过实际容器和发布记录核对：
+镜像已包含 PostgreSQL，安装时无需配置外部数据库。准备一台 **Linux x86_64** 机器，安装好 Docker、Docker Compose v2、`curl` 和 `openssl`。Docker 安装见[官方说明](https://docs.docker.com/engine/install/)。
 
-| 项目 | 当前实际配置 |
-| --- | --- |
-| 入口 | `https://tbtparent.me/surveys/login` |
-| 部署目录与文件 | `/opt/qingwen`；`compose.prod.yaml`、`.env.docker` |
-| Compose 项目 / 服务 / 容器 | `qingwen` / `app` / `qingwen-app-1`，仅一个业务容器 |
-| 固定镜像 | `docker.io/jojoshine/qingwen:sha-56260bca01fa839109d75e4e539170b6eeb1ce61-surveys` |
-| 数据库 | 容器内 PostgreSQL 17.11，库名及角色均为 `survey`；未配置外部 `DATABASE_URL` |
-| 数据卷 | `qingwen_qingwen_data` → `/var/lib/postgresql/data` |
-| 应用端口 | 宿主机 `127.0.0.1:3218` → 容器 `3000`；数据库端口不向宿主机发布 |
-| 独立 Nginx 配置 | `/etc/nginx/business/tbtparent-me/qingwen.conf`，沿用原 `/surveys` 代理和证书 |
-| 发布记录 | `/opt/qingwen/release.json`，记录镜像摘要、版本、数据卷、备份和验证结果 |
+以下仅用于**首次安装**；已有安装请看[升级](#更新镜像)。依次复制执行三组命令即可。
 
-原宿主机 PostgreSQL 14.24 的 `qingwen` 库已迁入内置数据库，全部表的行数和内容摘要一致；原账号密码、问卷及答卷保留。旧库和旧部署配置继续留作回退依据，不再承担当前应用读写。旧 `.env.external-db` 与 `compose.external-db.yaml` 不用于日常启动、升级或备份。
-
-本次切换备份目录为 `/opt/qingwen/backups/20261017T163140Z-56260bc-embedded/`。目录时间戳使用 UTC，与上述北京时间相差 8 小时。其中：
-
-- `qingwen-final.dump`：停写后的最终数据库归档；已完成试恢复和逐表校验。
-- `.env.external-db`、`compose.external-db.yaml`、`release.json`：切换前配置与发布记录。
-- `.env.embedded`、`compose.embedded.yaml`、`release.embedded.json`：切换后的内置数据库配置与发布记录。
-- `qingwen.nginx.conf`、校验结果和迁移日志：原 Nginx 配置及本次迁移依据。
-
-日常新增备份按第五节执行，文件名为 `qingwen.dump`、`.env.docker` 和 `compose.prod.yaml`；不要与首次迁移备份的命名混淆。备份和环境文件含业务数据或凭据，仅保存于受限目录，不提交到仓库。
-
-### 本次镜像传输与后续发布
-
-默认从 Docker Hub 拉取。此次服务器直连 Docker Hub 超时，经确认通过 GHCR 副本及 `ghcr.nju.edu.cn` 缓存传输；传输前后核对了镜像索引、平台 manifest、配置摘要和提交标签，与 Docker Hub 发布版本一致。正式环境仍使用上表的 Docker Hub 固定标签，没有在服务器上传源码或构建镜像。
-
-本次核验值为：
-
-```text
-Docker Hub / GHCR 镜像索引：sha256:a4e409b7d8ac53b76abb15e75ea612f090f779a51fd76b517f51605d98854042
-linux/amd64 镜像配置（docker image inspect 的 Id）：sha256:779f5e2940b9f17d86c56f4e915d3f1340a302cd9321b1f9322f5bb25fed82cb
-```
-
-这是本次传输记录，不表示其他加速源可直接信任。遇到直连失败时先处理网络或确认替代传输方式，核对官方摘要后再使用本地已加载镜像。索引摘要与镜像配置 Id 属于不同对象，不能相互比较。
-
-文档推送和 CI 发布不会自动 SSH 更新服务器。新 `latest` 不代表正式环境已升级；以 `release.json` 与运行容器为准。Compose 本身不自动维护发布记录，每次实际发布需同步记录提交、镜像、备份位置和验证结果。
-
-## 一、Docker Hub 镜像部署
-
-### 1. 准备环境
-
-需要 Docker Engine / Docker Desktop、Docker Compose v2 和 curl。部署机器需能访问 GitHub 配置文件及 Docker Hub，无需安装 Git、Node.js、pnpm 或 PostgreSQL。当前发布镜像支持 Linux amd64；ARM 机器可使用源码开发或自行配置 amd64 仿真。
-
-- Linux：按发行版使用 [Docker Engine 官方安装步骤](https://docs.docker.com/engine/install/)，需要 Engine 和 Compose 插件。
-- macOS / Windows：安装并启动 [Docker Desktop](https://docs.docker.com/desktop/)。
-
-```sh
-docker info
-docker compose version
-```
-
-正式对外服务需域名、HTTPS 证书和反向代理。应用生产会话使用 Secure Cookie，普通 HTTP 远程地址不能正常保持登录；localhost 可用于本机验证。
-
-### 2. 下载配置
-
-以下是全新安装。已有安装不要重新下载环境模板覆盖 `.env.docker`，升级按第五节执行。服务器命令以 Linux 和 `/opt/qingwen` 为例，统一使用 `-p qingwen` 固定项目名。
+### 1. 下载部署文件
 
 ```sh
 sudo mkdir -p /opt/qingwen
 sudo chown "$(id -u):$(id -g)" /opt/qingwen
 cd /opt/qingwen
-curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/compose.prod.yaml -o compose.prod.yaml
-curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/.env.docker.example -o .env.docker
-chmod 600 .env.docker
+curl -fSL https://raw.githubusercontent.com/JojoShine/qingwen/main/compose.prod.yaml -o compose.prod.yaml
 ```
 
-编辑 `.env.docker`：
+### 2. 自动生成账号密码
 
-| 变量 | 用途 |
-| --- | --- |
-| `POSTGRES_PASSWORD` | 内置数据库密码，必填；可用 `openssl rand -hex 24` 生成 |
-| `ADMIN_USERNAME` | 首次创建的管理员账号，默认 `admin` |
-| `ADMIN_PASSWORD` | 管理员初始化密码，至少 8 位；没有默认密码 |
-| `ADMIN_NAME` | 管理员显示名称，默认“管理员” |
-| `QINGWEN_IMAGE` | 默认 `docker.io/jojoshine/qingwen:latest`；`/surveys` 使用 `latest-surveys` |
-| `APP_BIND` / `APP_PORT` | 默认 `127.0.0.1:3218`，映射至应用容器 `3000`，适用于同机 Nginx |
-| `APP_URL` | 默认留空，分享地址自动跟随当前访问地址；需要固定时只填 origin，不带路径 |
-| `TRUSTED_CLIENT_IP_HEADER` | 默认空；需要 IP 次数限制时配置可信代理覆盖的单值请求头 |
-| `DEMO_USERNAME` / `DEMO_PASSWORD` | 可选，在登录页提供已有普通体验账号的填入按钮；不自动创建该账号 |
-
-不配置 `DATABASE_URL`。启动脚本自动生成内置 PostgreSQL 的连接地址，并对数据库密码进行 URL 编码。密码只在运行时注入，不写入镜像。已有数据库卷的密码不会因修改环境变量而改变；修改数据库密码需同步修改数据库角色密码和环境配置。
-
-部署 `https://tbtparent.me/surveys` 时设置：
-
-```dotenv
-QINGWEN_IMAGE=docker.io/jojoshine/qingwen:latest-surveys
-APP_URL=
+```sh
+(
+  umask 077
+  set -C
+  printf 'POSTGRES_PASSWORD=%s\nADMIN_USERNAME=admin\nADMIN_PASSWORD=%s\n' \
+    "$(openssl rand -hex 24)" "$(openssl rand -hex 16)" > .env.docker
+)
+sed -n '/^ADMIN_/p' .env.docker
 ```
 
-`/surveys` 在构建时写入页面、静态资源、接口和分享地址。不能通过运行时 `NEXT_PUBLIC_BASE_PATH` 改变已编译的路径。
+保存终端显示的账号和密码。配置保存在 `.env.docker`，已有文件会拒绝覆盖，不要删除它重新生成。
 
-### 3. 拉取与启动
+### 3. 启动轻问
 
 ```sh
 docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml pull &&
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up -d --no-build --wait
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml ps
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up \
+  -d --no-build --pull never --wait --wait-timeout 180
+```
+
+启动时自动完成数据库初始化、建表和管理员创建。命令成功后：
+
+- **装在自己的电脑上**：打开 <http://localhost:3218/login>，输入第二步的账号密码。
+- **装在远程服务器上**：在自己的电脑另开终端执行下面的 SSH 转发，保持终端打开，再访问同一个 localhost 地址。
+
+```sh
+# 替换为你自己的服务器账号和 IP，在自己的电脑上执行。
+ssh -N -L 3218:127.0.0.1:3218 用户名@服务器IP
+```
+
+SSH 转发用于自己登录试用。要让其他人访问或手机扫码填写，请为服务器配置 **HTTPS 域名**，反向代理到 `127.0.0.1:3218`，见[公网访问](#公网访问)。默认不开放公网端口，不能直接用服务器的 HTTP IP 地址登录。
+
+遇到启动问题，查看日志：
+
+```sh
 docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml logs --tail=100 app
 ```
 
-整个部署只有 `app` 一个服务，自动按以下顺序启动：
+数据会自动保存在持久化卷中，正常更新容器不会丢失。后续操作按需查看：[升级](#更新镜像) · [备份](#备份) · [恢复或换机器](#换机器恢复) · [可选配置](#可选配置)。
 
-1. 初始化空数据库卷，或打开已有 PostgreSQL 数据目录。
-2. 等待内置 PostgreSQL 就绪，执行未应用的 Prisma 迁移。
-3. 创建配置的管理员；同名账号已存在时不覆盖密码，不生成演示数据。
-4. 以 `node` 用户启动应用，PostgreSQL 以 `postgres` 用户运行。
+## 公网访问
 
-应用和数据库由容器入口统一管理；任一进程退出会停止另一个进程，由容器重启策略重新启动。停止时先通知应用及数据库退出，Compose 预留 60 秒关闭时间。数据库仅监听容器内的 `127.0.0.1:5432`，部署只映射应用端口 `3000`。
+如果只在自己电脑试用，完成三步安装即可。对外发布问卷还需要一个已解析到服务器的域名和有效 HTTPS 证书。使用 Nginx 或已有反向代理，将该域名转发到 `127.0.0.1:3218`。
 
-根路径镜像访问 <http://localhost:3218/login>，`-surveys` 变体访问 <http://localhost:3218/surveys/login>。实际登录一次确认管理员和数据库可用，再配置 HTTPS 代理。手机扫码前需从手机可访问的域名打开后台，二维码中的 localhost 无法从另一台设备访问。
-
-### 4. 不使用 Compose 时
-
-同一个镜像也支持直接运行。先按前文准备 `.env.docker`，然后执行以下替代命令；不要和 Compose 同时占用相同端口或数据目录：
-
-```sh
-docker volume create qingwen_data
-docker run -d --name qingwen --restart unless-stopped --stop-timeout 60 \
-  --env-file .env.docker \
-  -p 127.0.0.1:3218:3000 \
-  --mount source=qingwen_data,target=/var/lib/postgresql/data \
-  docker.io/jojoshine/qingwen:latest
-docker logs --tail=100 qingwen
-```
-
-本文 Compose 固定项目名为 `qingwen`，实际卷名为 `qingwen_qingwen_data`；上面的直接运行示例使用 `qingwen_data`。迁移部署方式时应明确选择原卷或通过备份恢复，不要误用一个新的空卷。
-
-### 5. 数据持久化与体验账号
-
-Compose 将 `qingwen_data` 命名卷挂载至 `/var/lib/postgresql/data`。重建、更新或删除容器不会删除该卷；所有运维命令保持 `-p qingwen`，避免创建另一个空卷。
-
-```sh
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml down
-```
-
-上述操作保留数据。`down -v` 会删除数据卷，不用于正常停止或升级。镜像不能代替数据备份，搬到另一台服务器时需要恢复数据库备份和运行配置。
-
-体验账号先在用户管理中创建为普通账号，再配置 `DEMO_USERNAME` 和 `DEMO_PASSWORD`。登录页按钮会填入公开凭据，不应使用管理员账号。`DEMO_USERNAME` 同时保护该账号：隐藏个人设置并拒绝修改密码。关闭体验入口时只清空 `DEMO_PASSWORD`、保留 `DEMO_USERNAME`，账号保护仍生效；需要停用时由管理员禁用账号。
-
-## 二、HTTPS 与独立 Nginx 配置
-
-默认应用端口仅绑定宿主机 loopback，适合同机 Nginx。以下示例放入已有 HTTPS 虚拟主机，证书与 `server_name` 按实际域名配置：
+使用 Nginx 时，将以下内容保存为 `/etc/nginx/conf.d/qingwen.conf`，确认该目录在主配置中被加载。域名和证书路径换成自己的实际值：
 
 ```nginx
 server {
@@ -179,6 +94,12 @@ server {
 }
 ```
 
+检查并重新加载 Nginx：
+
+```sh
+sudo nginx -t && sudo systemctl reload nginx
+```
+
 通过 `https://survey.example.com` 访问后台后，分享链接会自动使用该域名，无需设置 `APP_URL`。代理需按上例保留 Host 并覆盖 `X-Forwarded-Proto`，使 HTTPS 请求来源校验正常。
 
 只有后台访问地址与分享域名不同时，才需要设置 `APP_URL=https://survey.example.com` 固定分享地址；环境配置变更后重建应用容器：
@@ -187,32 +108,193 @@ server {
 docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up -d --no-build app
 ```
 
-### 已有域名下的 `/surveys`
+### 使用 `/surveys` 子路径
 
-`https://tbtparent.me/surveys` 与已有业务共用域名和证书。使用 `-surveys` 应用镜像，将仓库中的 [Nginx 示例](../deploy/nginx/qingwen.conf.example) 保存为独立配置 `/etc/nginx/business/tbtparent-me/qingwen.conf`，在现有 HTTPS `server` 内加载，不新增同域名的 `server` 块。
+默认安装从网站根路径访问。如果需要与其他业务共用域名的 `/surveys` 路径，在 `.env.docker` 加入 `QINGWEN_IMAGE=docker.io/jojoshine/qingwen:latest-surveys`，然后按[更新镜像](#更新镜像)重新拉取和启动。
 
-现有主配置包含 `/etc/nginx/business/tbtparent.me/*.conf`（点号目录）。为保留该入口，并将实际配置放在要求的连字符目录中，建立单个文件的符号链接：
-
-```sh
-sudo mkdir -p /etc/nginx/business/tbtparent-me /etc/nginx/business/tbtparent.me
-sudo curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/deploy/nginx/qingwen.conf.example -o /etc/nginx/business/tbtparent-me/qingwen.conf
-sudo ln -s /etc/nginx/business/tbtparent-me/qingwen.conf /etc/nginx/business/tbtparent.me/qingwen.conf
-sudo nginx -t
-# 仅在配置检查成功后重新加载。
-sudo systemctl reload nginx
-```
-
-已有该链接时无需重复创建；若同名文件已存在，先核对内容，不覆盖现有业务配置。确保上述通配符入口位于该域名的 HTTPS `server` 内，且该配置只加载一次。
-
-示例使用 `location = /surveys` 和 `location ^~ /surveys/`，均代理到 `http://127.0.0.1:3218`，`proxy_pass` 后不加 `/`，保留原始 `/surveys` URI。`^~` 避免静态资源被现有正则 location 截获；其他业务路径继续由原配置处理。
-
-配置完成后通过 `https://tbtparent.me/surveys` 登录，检查页面、静态资源、接口、分享链接与匿名填写。`APP_URL` 默认留空；如确需固定，可填 `https://tbtparent.me`，应用会自动附加 `/surveys`。
+将 [独立 Nginx 路径配置](../deploy/nginx/qingwen.conf.example)放入自己的配置目录，并在已有 HTTPS `server` 内 `include`。它会保留 `/surveys` 原始路径转发到 `127.0.0.1:3218`，无需新增同域名 `server`。本项目演示服务器的具体目录与加载方式放在文末[正式环境附录](#附录当前正式环境)。
 
 若反向代理也在容器中，须让它与应用处于同一 Docker 网络，通过 `app:3000` 访问；代理容器内的 `127.0.0.1` 不指向宿主机应用。不要为了代理连通而直接向公网开放应用和数据库端口。
 
 需要 IP 次数限制时，设置 `TRUSTED_CLIENT_IP_HEADER=x-real-ip`，确保代理始终覆盖该头且无法绕过代理直连应用。默认留空时系统不允许开启 IP 限制；单值头不能填写逗号分隔的转发链。多层代理需先正确还原可信客户端 IP，再向应用传递一个值。
 
-## 三、源码部署
+## 日常运维
+
+以下命令在 `/opt/qingwen` 执行，固定使用 `-p qingwen`、`.env.docker` 和 `compose.prod.yaml`。应用和数据库在同一容器中，日常运维不再操作宿主机的 `qingwen` 库，不另起 `db` 或 `migrate` 服务。
+
+### 备份
+
+应用正常运行时可生成 PostgreSQL 一致性快照。每次使用独立目录，保存数据库、运行配置和镜像引用，不覆盖旧备份：
+
+```sh
+cd /opt/qingwen
+umask 077
+QINGWEN_BACKUP_DIR="backups/$(date -u +%Y%m%dT%H%M%SZ)-before-upgrade"
+mkdir -p backups &&
+chmod 700 backups &&
+mkdir -m 700 "$QINGWEN_BACKUP_DIR" &&
+cp -p .env.docker compose.prod.yaml "$QINGWEN_BACKUP_DIR/" &&
+docker inspect --format '{{.Config.Image}} {{.Image}}' \
+  "$(docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml ps -q app)" \
+  > "$QINGWEN_BACKUP_DIR/image-reference.txt" &&
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml exec -T app \
+  pg_dump -U survey -d survey -Fc > "$QINGWEN_BACKUP_DIR/qingwen.dump.partial" &&
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml exec -T app \
+  pg_restore --list < "$QINGWEN_BACKUP_DIR/qingwen.dump.partial" > "$QINGWEN_BACKUP_DIR/archive.list" &&
+mv "$QINGWEN_BACKUP_DIR/qingwen.dump.partial" "$QINGWEN_BACKUP_DIR/qingwen.dump" &&
+(cd "$QINGWEN_BACKUP_DIR" && sha256sum qingwen.dump > qingwen.dump.sha256)
+```
+
+只有整条命令成功才继续升级。归档列表可读用于检查格式，SHA-256 用于检查文件传输完整性；备份的可恢复性还需通过独立数据卷试恢复验证。本次正式切换已完成该验证。若存在发布记录，一并保存：
+
+```sh
+if [ -f release.json ]; then cp -p release.json "$QINGWEN_BACKUP_DIR/"; fi
+```
+
+备份包含用户、问卷、答卷、会话及 Banner，环境文件包含凭据。将整个受限目录复制到其他设备或备份存储，保留多个版本。在线备份对应备份时的快照，不包含之后的新写入；正式迁移或恢复需安排维护窗口、暂停外部写入，并保存最终备份。
+
+### 恢复到现有安装
+
+先按上节备份当前目标并暂停外部写入。将 `QINGWEN_RESTORE_DIR` 设置为准备恢复的实际备份目录，确认其中有 `qingwen.dump`；先校验文件，再停止应用并导入：
+
+```sh
+# 示例路径，替换为实际备份目录。
+QINGWEN_RESTORE_DIR=/opt/qingwen/backups/your-backup
+(cd "$QINGWEN_RESTORE_DIR" && sha256sum -c qingwen.dump.sha256) &&
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml stop app &&
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml run \
+  --pull never --rm --no-deps -T app restore < "$QINGWEN_RESTORE_DIR/qingwen.dump" &&
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up \
+  -d --no-build --pull never --wait --wait-timeout 180
+```
+
+镜像须已在本机，且与备份或目标迁移版本兼容；若没有，先拉取再停机。`restore` 只启动内置数据库，以 `--clean --if-exists --no-owner --no-privileges --exit-on-error` 导入，成功后关闭临时容器；不会同时启动网页服务。原应用必须先停止，避免两个 PostgreSQL 进程打开同一数据目录。
+
+恢复会覆盖目标库中的同名对象和数据。失败时命令链停止，应用保持停止状态；先检查日志并使用保留的备份处理，再启动。它不会自动恢复被覆盖的目标库。正常启动会应用新增迁移，不覆盖备份中已有账号密码。
+
+### 换机器恢复
+
+新机器先安装 Docker 并创建 `/opt/qingwen`，复制完整的备份目录。使用备份内的环境配置及匹配版本的 Compose，不用空白模板替换原密码、路径前缀或体验账号配置：
+
+```sh
+cd /opt/qingwen
+# 示例路径，替换为复制到新机器的实际备份目录。
+QINGWEN_RESTORE_DIR=/opt/qingwen/backups/your-backup
+install -m 600 "$QINGWEN_RESTORE_DIR/.env.docker" .env.docker &&
+install -m 644 "$QINGWEN_RESTORE_DIR/compose.prod.yaml" compose.prod.yaml &&
+(cd "$QINGWEN_RESTORE_DIR" && sha256sum -c qingwen.dump.sha256) &&
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml pull &&
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml run \
+  --pull never --rm --no-deps -T app restore < "$QINGWEN_RESTORE_DIR/qingwen.dump" &&
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up \
+  -d --no-build --pull never --wait --wait-timeout 180
+```
+
+`restore` 会初始化新机器的空数据卷，再导入归档。随后验证管理员和体验账号登录、问卷与答卷数量、Banner、公开填写链接及结果页，配置目标机器的 HTTPS/Nginx。原域名继续使用时，保留 `/surveys` 变体及代理路径；更换域名时检查可选的 `APP_URL` 是否仍覆盖旧地址。
+
+若使用本次正式切换的首次备份，文件名不同：数据库为 `qingwen-final.dump`，配套新环境为 `.env.embedded`、`compose.embedded.yaml`，校验文件为 `qingwen-final.dump.sha256`。恢复时对应替换上述文件名；校验文件中的路径为当时服务器路径，异机需对实际归档计算 SHA-256 并核对记录值。原 `.env.external-db` 只服务于旧方案回退。
+
+不要直接复制运行中的数据库目录，也不要跨 PostgreSQL 大版本挂载旧目录；使用逻辑备份恢复。新机器实际卷名仍为 `qingwen_qingwen_data`，但它是该机器的新卷，数据来自本次导入。
+
+### 更新镜像
+
+1. 执行备份章节，保留旧镜像引用及升级前的 `.env.docker`、Compose 和发布记录。
+2. 选择已通过 CI 的目标提交；`/surveys` 继续使用 `-surveys` 标签。下载同提交的 Compose 到临时文件，审核后替换；不要重新下载环境模板覆盖现有 `.env.docker`。
+3. 仅将 `.env.docker` 中的 `QINGWEN_IMAGE` 改为目标固定标签，保留密码、项目名、卷名、端口及路径配置。若新 Compose 改变卷映射或 PostgreSQL 大版本，先另行验证迁移，不直接套用下面的日常升级命令。
+
+下载匹配配置的示例，提交值替换为目标版本：
+
+```sh
+QINGWEN_TARGET_COMMIT=56260bca01fa839109d75e4e539170b6eeb1ce61
+curl -fsSL "https://raw.githubusercontent.com/JojoShine/qingwen/$QINGWEN_TARGET_COMMIT/compose.prod.yaml" \
+  -o compose.prod.yaml.next
+```
+
+审核后将临时文件替换为 `compose.prod.yaml`，完成镜像引用修改，再执行：
+
+```sh
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml pull &&
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up \
+  -d --no-build --pull never --wait --wait-timeout 180
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml ps
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml logs --tail=100 app
+curl --fail --silent --show-error https://tbtparent.me/surveys/login > /dev/null
+```
+
+先拉取再重建，下载失败不会切换旧容器。若本地已有经官方摘要核验的镜像，可在确认固定引用存在后直接执行 `up --pull never`；这正是本次网络受限环境完成传输后采用的方式，不表示可以略过镜像校验。
+
+容器启动入口自动执行增量迁移和管理员存在性检查，不再手动运行 `db:migrate`、`db:seed` 或独立迁移容器。检查健康状态后，还需实际登录并查看现有问卷、答卷和公开填写页，不能只凭登录页 HTTP 200 判断数据库正常。成功后记录新的发布版本、镜像摘要和备份位置；原 Nginx 不因单容器升级而重写。
+
+### 回退
+
+保留旧镜像及备份。若旧应用与当前数据库结构、PostgreSQL 数据目录版本兼容，可恢复升级前的 `.env.docker` 和 Compose，使用本地旧镜像重新启动：
+
+```sh
+cp -p "$QINGWEN_BACKUP_DIR/.env.docker" .env.docker &&
+cp -p "$QINGWEN_BACKUP_DIR/compose.prod.yaml" compose.prod.yaml &&
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up \
+  -d --no-build --pull never --wait --wait-timeout 180
+```
+
+这里的 `QINGWEN_BACKUP_DIR` 指升级前备份目录；不要指向其他部署。若数据库迁移不向后兼容，需要在维护窗口停止写入，先保存当前失败现场，再按恢复步骤导入升级前备份。回退至旧外部数据库方案还需恢复旧配置和相应数据库；不能只把不含 PostgreSQL 的旧镜像标签套给新 Compose。回退到备份时间点会舍弃其后的新写入，需先核对并处理这些数据。
+
+不要修改已应用的历史迁移，不用 `prisma migrate reset` 修复生产库。源码部署仍按[源码部署](#源码部署)步骤进行，更新顺序是停止服务、拉取代码、安装冻结锁文件依赖、生成客户端、迁移、构建、再启动；备份与回退原则相同。
+
+## 可选配置
+
+首次安装只生成三个必需变量，其他配置均有默认值。有需要时编辑 `.env.docker`，再按[更新镜像](#更新镜像)中的启动方式重建容器。完整环境变量示例见 [.env.docker.example](../.env.docker.example)，不要用模板覆盖已有密码。
+
+| 变量 | 用途 |
+| --- | --- |
+| `POSTGRES_PASSWORD` | 内置数据库密码，必填；可用 `openssl rand -hex 24` 生成 |
+| `ADMIN_USERNAME` | 首次创建的管理员账号，默认 `admin` |
+| `ADMIN_PASSWORD` | 管理员初始化密码，至少 8 位；没有默认密码 |
+| `ADMIN_NAME` | 管理员显示名称，默认“管理员” |
+| `QINGWEN_IMAGE` | 默认 `docker.io/jojoshine/qingwen:latest`；`/surveys` 使用 `latest-surveys` |
+| `APP_BIND` / `APP_PORT` | 默认 `127.0.0.1:3218`，映射至应用容器 `3000`，适用于同机 Nginx |
+| `APP_URL` | 默认留空，分享地址自动跟随当前访问地址；需要固定时只填 origin，不带路径 |
+| `TRUSTED_CLIENT_IP_HEADER` | 默认空；需要 IP 次数限制时配置可信代理覆盖的单值请求头 |
+| `DEMO_USERNAME` / `DEMO_PASSWORD` | 可选，在登录页提供已有普通体验账号的填入按钮；不自动创建该账号 |
+
+不配置 `DATABASE_URL`。启动脚本自动生成内置 PostgreSQL 的连接地址，并对数据库密码进行 URL 编码。密码只在运行时注入，不写入镜像。已有数据库卷的密码不会因修改环境变量而改变；修改数据库密码需同步修改数据库角色密码和环境配置。
+
+需要在自己的域名下使用 `/surveys` 子路径时设置：
+
+```dotenv
+QINGWEN_IMAGE=docker.io/jojoshine/qingwen:latest-surveys
+APP_URL=
+```
+
+`/surveys` 在构建时写入页面、静态资源、接口和分享地址。不能通过运行时 `NEXT_PUBLIC_BASE_PATH` 改变已编译的路径。
+
+### 持久化与体验账号
+
+Compose 将 `qingwen_data` 命名卷挂载至 `/var/lib/postgresql/data`。重建、更新或删除容器不会删除该卷；所有运维命令保持 `-p qingwen`，避免创建另一个空卷。
+
+```sh
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml down
+```
+
+上述操作保留数据。`down -v` 会删除数据卷，不用于正常停止或升级。镜像不能代替数据备份，搬到另一台服务器时需要恢复数据库备份和运行配置。
+
+体验账号先在用户管理中创建为普通账号，再配置 `DEMO_USERNAME` 和 `DEMO_PASSWORD`。登录页按钮会填入公开凭据，不应使用管理员账号。`DEMO_USERNAME` 同时保护该账号：隐藏个人设置并拒绝修改密码。关闭体验入口时只清空 `DEMO_PASSWORD`、保留 `DEMO_USERNAME`，账号保护仍生效；需要停用时由管理员禁用账号。
+
+## 常见问题
+
+| 现象 | 检查方向 |
+| --- | --- |
+| 镜像拉取失败 | 检查 Docker Hub 网络、公开仓库及已发布标签，确认机器为 amd64 |
+| 启动失败或反复重启 | 查看 `logs app` 中 PostgreSQL、迁移或初始化错误；检查密码、卷权限和空间 |
+| 更新后数据为空 | 确认使用原 Compose 项目名和数据卷；旧外部数据库需显式导入备份 |
+| 修改数据库密码变量后连接失败 | 已有数据库卷不会按环境变量重设密码，需修改数据库角色密码并同步配置 |
+| 旧数据目录无法启动 | 核对 PostgreSQL 大版本和原数据来源；使用备份恢复，不强行修改 `PG_VERSION` |
+| `/surveys` 资源 404 | 选择 `-surveys` 变体，Nginx 保留 URI，检查正则 location 是否截获资源 |
+| 登录后返回登录页 | 检查 HTTPS、Secure Cookie、代理 Host 和 `X-Forwarded-Proto` |
+| 手机二维码无法打开 | 从手机可访问的域名打开后台，清除错误的 `APP_URL` 覆盖值后重新分享 |
+| IP 次数限制不可用 | 设置可信单值请求头，并防止绕过代理直接访问应用 |
+| 忘记管理员密码 | 由其他管理员在用户管理中重置；再次启动不会覆盖已有密码 |
+
+## 源码部署
 
 ### 本地开发：最短可执行链路
 
@@ -353,7 +435,7 @@ journalctl -u qingwen -n 100 --no-pager
 
 已有部署若此前填写过 `APP_URL`，升级不会自动清除该值；需要自动获取时请清空或删除变量，然后重建应用容器或重启源码服务。后台从 localhost 打开时，生成的链接也会使用 localhost；手机扫码前应从可访问的域名或局域网 IP 打开后台。
 
-## 四、迁入内置数据库
+## 从旧版迁入
 
 此节适用于尚未迁移的旧版部署，正式环境 `tbtparent.me` 已完成迁移，不需要重复执行。旧版可能使用宿主机 PostgreSQL 14.24 的 `qingwen` 库或独立数据库容器，这些数据不会自动搬入新镜像。新标准使用新的 `qingwen_data` 卷；只更换镜像而不导入备份，会看到一个新库。
 
@@ -381,129 +463,7 @@ docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up -d --no
 
 `compose.external-db.yaml` 仅为旧部署保留过渡兼容：设置 `DATABASE_URL` 时入口跳过内置 PostgreSQL，执行旧应用或显式迁移命令。新安装不使用此配置。此处的代码和文档更新不会自行切换正式服务器。
 
-## 五、备份、换机恢复与升级
-
-以下命令在 `/opt/qingwen` 执行，固定使用 `-p qingwen`、`.env.docker` 和 `compose.prod.yaml`。应用和数据库在同一容器中，日常运维不再操作宿主机的 `qingwen` 库，不另起 `db` 或 `migrate` 服务。
-
-### 备份
-
-应用正常运行时可生成 PostgreSQL 一致性快照。每次使用独立目录，保存数据库、运行配置和镜像引用，不覆盖旧备份：
-
-```sh
-cd /opt/qingwen
-umask 077
-QINGWEN_BACKUP_DIR="backups/$(date -u +%Y%m%dT%H%M%SZ)-before-upgrade"
-mkdir -p backups &&
-chmod 700 backups &&
-mkdir -m 700 "$QINGWEN_BACKUP_DIR" &&
-cp -p .env.docker compose.prod.yaml "$QINGWEN_BACKUP_DIR/" &&
-docker inspect --format '{{.Config.Image}} {{.Image}}' \
-  "$(docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml ps -q app)" \
-  > "$QINGWEN_BACKUP_DIR/image-reference.txt" &&
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml exec -T app \
-  pg_dump -U survey -d survey -Fc > "$QINGWEN_BACKUP_DIR/qingwen.dump.partial" &&
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml exec -T app \
-  pg_restore --list < "$QINGWEN_BACKUP_DIR/qingwen.dump.partial" > "$QINGWEN_BACKUP_DIR/archive.list" &&
-mv "$QINGWEN_BACKUP_DIR/qingwen.dump.partial" "$QINGWEN_BACKUP_DIR/qingwen.dump" &&
-(cd "$QINGWEN_BACKUP_DIR" && sha256sum qingwen.dump > qingwen.dump.sha256)
-```
-
-只有整条命令成功才继续升级。归档列表可读用于检查格式，SHA-256 用于检查文件传输完整性；备份的可恢复性还需通过独立数据卷试恢复验证。本次正式切换已完成该验证。若存在发布记录，一并保存：
-
-```sh
-if [ -f release.json ]; then cp -p release.json "$QINGWEN_BACKUP_DIR/"; fi
-```
-
-备份包含用户、问卷、答卷、会话及 Banner，环境文件包含凭据。将整个受限目录复制到其他设备或备份存储，保留多个版本。在线备份对应备份时的快照，不包含之后的新写入；正式迁移或恢复需安排维护窗口、暂停外部写入，并保存最终备份。
-
-### 恢复到现有安装
-
-先按上节备份当前目标并暂停外部写入。将 `QINGWEN_RESTORE_DIR` 设置为准备恢复的实际备份目录，确认其中有 `qingwen.dump`；先校验文件，再停止应用并导入：
-
-```sh
-# 示例路径，替换为实际备份目录。
-QINGWEN_RESTORE_DIR=/opt/qingwen/backups/your-backup
-(cd "$QINGWEN_RESTORE_DIR" && sha256sum -c qingwen.dump.sha256) &&
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml stop app &&
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml run \
-  --pull never --rm --no-deps -T app restore < "$QINGWEN_RESTORE_DIR/qingwen.dump" &&
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up \
-  -d --no-build --pull never --wait --wait-timeout 180
-```
-
-镜像须已在本机，且与备份或目标迁移版本兼容；若没有，先拉取再停机。`restore` 只启动内置数据库，以 `--clean --if-exists --no-owner --no-privileges --exit-on-error` 导入，成功后关闭临时容器；不会同时启动网页服务。原应用必须先停止，避免两个 PostgreSQL 进程打开同一数据目录。
-
-恢复会覆盖目标库中的同名对象和数据。失败时命令链停止，应用保持停止状态；先检查日志并使用保留的备份处理，再启动。它不会自动恢复被覆盖的目标库。正常启动会应用新增迁移，不覆盖备份中已有账号密码。
-
-### 换机器恢复
-
-新机器先安装 Docker 并创建 `/opt/qingwen`，复制完整的备份目录。使用备份内的环境配置及匹配版本的 Compose，不用空白模板替换原密码、路径前缀或体验账号配置：
-
-```sh
-cd /opt/qingwen
-# 示例路径，替换为复制到新机器的实际备份目录。
-QINGWEN_RESTORE_DIR=/opt/qingwen/backups/your-backup
-install -m 600 "$QINGWEN_RESTORE_DIR/.env.docker" .env.docker &&
-install -m 644 "$QINGWEN_RESTORE_DIR/compose.prod.yaml" compose.prod.yaml &&
-(cd "$QINGWEN_RESTORE_DIR" && sha256sum -c qingwen.dump.sha256) &&
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml pull &&
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml run \
-  --pull never --rm --no-deps -T app restore < "$QINGWEN_RESTORE_DIR/qingwen.dump" &&
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up \
-  -d --no-build --pull never --wait --wait-timeout 180
-```
-
-`restore` 会初始化新机器的空数据卷，再导入归档。随后验证管理员和体验账号登录、问卷与答卷数量、Banner、公开填写链接及结果页，配置目标机器的 HTTPS/Nginx。原域名继续使用时，保留 `/surveys` 变体及代理路径；更换域名时检查可选的 `APP_URL` 是否仍覆盖旧地址。
-
-若使用本次正式切换的首次备份，文件名不同：数据库为 `qingwen-final.dump`，配套新环境为 `.env.embedded`、`compose.embedded.yaml`，校验文件为 `qingwen-final.dump.sha256`。恢复时对应替换上述文件名；校验文件中的路径为当时服务器路径，异机需对实际归档计算 SHA-256 并核对记录值。原 `.env.external-db` 只服务于旧方案回退。
-
-不要直接复制运行中的数据库目录，也不要跨 PostgreSQL 大版本挂载旧目录；使用逻辑备份恢复。新机器实际卷名仍为 `qingwen_qingwen_data`，但它是该机器的新卷，数据来自本次导入。
-
-### 更新镜像
-
-1. 执行备份章节，保留旧镜像引用及升级前的 `.env.docker`、Compose 和发布记录。
-2. 选择已通过 CI 的目标提交；`/surveys` 继续使用 `-surveys` 标签。下载同提交的 Compose 到临时文件，审核后替换；不要重新下载环境模板覆盖现有 `.env.docker`。
-3. 仅将 `.env.docker` 中的 `QINGWEN_IMAGE` 改为目标固定标签，保留密码、项目名、卷名、端口及路径配置。若新 Compose 改变卷映射或 PostgreSQL 大版本，先另行验证迁移，不直接套用下面的日常升级命令。
-
-下载匹配配置的示例，提交值替换为目标版本：
-
-```sh
-QINGWEN_TARGET_COMMIT=56260bca01fa839109d75e4e539170b6eeb1ce61
-curl -fsSL "https://raw.githubusercontent.com/JojoShine/qingwen/$QINGWEN_TARGET_COMMIT/compose.prod.yaml" \
-  -o compose.prod.yaml.next
-```
-
-审核后将临时文件替换为 `compose.prod.yaml`，完成镜像引用修改，再执行：
-
-```sh
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml pull &&
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up \
-  -d --no-build --pull never --wait --wait-timeout 180
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml ps
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml logs --tail=100 app
-curl --fail --silent --show-error https://tbtparent.me/surveys/login > /dev/null
-```
-
-先拉取再重建，下载失败不会切换旧容器。若本地已有经官方摘要核验的镜像，可在确认固定引用存在后直接执行 `up --pull never`；这正是本次网络受限环境完成传输后采用的方式，不表示可以略过镜像校验。
-
-容器启动入口自动执行增量迁移和管理员存在性检查，不再手动运行 `db:migrate`、`db:seed` 或独立迁移容器。检查健康状态后，还需实际登录并查看现有问卷、答卷和公开填写页，不能只凭登录页 HTTP 200 判断数据库正常。成功后记录新的发布版本、镜像摘要和备份位置；原 Nginx 不因单容器升级而重写。
-
-### 回退
-
-保留旧镜像及备份。若旧应用与当前数据库结构、PostgreSQL 数据目录版本兼容，可恢复升级前的 `.env.docker` 和 Compose，使用本地旧镜像重新启动：
-
-```sh
-cp -p "$QINGWEN_BACKUP_DIR/.env.docker" .env.docker &&
-cp -p "$QINGWEN_BACKUP_DIR/compose.prod.yaml" compose.prod.yaml &&
-docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up \
-  -d --no-build --pull never --wait --wait-timeout 180
-```
-
-这里的 `QINGWEN_BACKUP_DIR` 指升级前备份目录；不要指向其他部署。若数据库迁移不向后兼容，需要在维护窗口停止写入，先保存当前失败现场，再按恢复步骤导入升级前备份。回退至旧外部数据库方案还需恢复旧配置和相应数据库；不能只把不含 PostgreSQL 的旧镜像标签套给新 Compose。回退到备份时间点会舍弃其后的新写入，需先核对并处理这些数据。
-
-不要修改已应用的历史迁移，不用 `prisma migrate reset` 修复生产库。源码部署仍按第三节进行，更新顺序是停止服务、拉取代码、安装冻结锁文件依赖、生成客户端、迁移、构建、再启动；备份与回退原则相同。
-
-## 六、GitHub CI 与镜像发布
+## 镜像发布
 
 实际链路为：**提交 main → 源码构建、类型检查、接口和浏览器测试 → 构建内置 PostgreSQL 的镜像 → 单容器启动和数据恢复验证 → 发布 Docker Hub 并同步 GHCR**。服务器只拉取镜像，不上传源码或现场构建；当前没有自动 SSH 上线任务。
 
@@ -535,20 +495,68 @@ docker build --target runner --build-arg NEXT_PUBLIC_BASE_PATH=/surveys -t qingw
 
 构建阶段不连接正式数据库，也不初始化账号；`.dockerignore` 排除环境文件、备份、Git 历史和本地依赖。PostgreSQL 继承官方镜像的初始化过程，容器入口使用 tini 管理退出与子进程；实际用户数据始终在运行时数据卷中。
 
-## 七、常见问题
+## 附录：当前正式环境
 
-| 现象 | 检查方向 |
+以下状态于 **2026-10-18 00:39（Asia/Shanghai）** 完成切换，并通过实际容器和发布记录核对：
+
+| 项目 | 当前实际配置 |
 | --- | --- |
-| 镜像拉取失败 | 检查 Docker Hub 网络、公开仓库及已发布标签，确认机器为 amd64 |
-| 启动失败或反复重启 | 查看 `logs app` 中 PostgreSQL、迁移或初始化错误；检查密码、卷权限和空间 |
-| 更新后数据为空 | 确认使用原 Compose 项目名和数据卷；旧外部数据库需显式导入备份 |
-| 修改数据库密码变量后连接失败 | 已有数据库卷不会按环境变量重设密码，需修改数据库角色密码并同步配置 |
-| 旧数据目录无法启动 | 核对 PostgreSQL 大版本和原数据来源；使用备份恢复，不强行修改 `PG_VERSION` |
-| `/surveys` 资源 404 | 选择 `-surveys` 变体，Nginx 保留 URI，检查正则 location 是否截获资源 |
-| 登录后返回登录页 | 检查 HTTPS、Secure Cookie、代理 Host 和 `X-Forwarded-Proto` |
-| 手机二维码无法打开 | 从手机可访问的域名打开后台，清除错误的 `APP_URL` 覆盖值后重新分享 |
-| IP 次数限制不可用 | 设置可信单值请求头，并防止绕过代理直接访问应用 |
-| 忘记管理员密码 | 由其他管理员在用户管理中重置；再次启动不会覆盖已有密码 |
+| 入口 | `https://tbtparent.me/surveys/login` |
+| 部署目录与文件 | `/opt/qingwen`；`compose.prod.yaml`、`.env.docker` |
+| Compose 项目 / 服务 / 容器 | `qingwen` / `app` / `qingwen-app-1`，仅一个业务容器 |
+| 固定镜像 | `docker.io/jojoshine/qingwen:sha-56260bca01fa839109d75e4e539170b6eeb1ce61-surveys` |
+| 数据库 | 容器内 PostgreSQL 17.11，库名及角色均为 `survey`；未配置外部 `DATABASE_URL` |
+| 数据卷 | `qingwen_qingwen_data` → `/var/lib/postgresql/data` |
+| 应用端口 | 宿主机 `127.0.0.1:3218` → 容器 `3000`；数据库端口不向宿主机发布 |
+| 独立 Nginx 配置 | `/etc/nginx/business/tbtparent-me/qingwen.conf`，沿用原 `/surveys` 代理和证书 |
+| 发布记录 | `/opt/qingwen/release.json`，记录镜像摘要、版本、数据卷、备份和验证结果 |
+
+原宿主机 PostgreSQL 14.24 的 `qingwen` 库已迁入内置数据库，全部表的行数和内容摘要一致；原账号密码、问卷及答卷保留。旧库和旧部署配置继续留作回退依据，不再承担当前应用读写。旧 `.env.external-db` 与 `compose.external-db.yaml` 不用于日常启动、升级或备份。
+
+本次切换备份目录为 `/opt/qingwen/backups/20261017T163140Z-56260bc-embedded/`。目录时间戳使用 UTC，与上述北京时间相差 8 小时。其中：
+
+- `qingwen-final.dump`：停写后的最终数据库归档；已完成试恢复和逐表校验。
+- `.env.external-db`、`compose.external-db.yaml`、`release.json`：切换前配置与发布记录。
+- `.env.embedded`、`compose.embedded.yaml`、`release.embedded.json`：切换后的内置数据库配置与发布记录。
+- `qingwen.nginx.conf`、校验结果和迁移日志：原 Nginx 配置及本次迁移依据。
+
+日常新增备份按[备份](#备份)步骤执行，文件名为 `qingwen.dump`、`.env.docker` 和 `compose.prod.yaml`；不要与首次迁移备份的命名混淆。备份和环境文件含业务数据或凭据，仅保存于受限目录，不提交到仓库。
+
+### 本次镜像传输与后续发布
+
+默认从 Docker Hub 拉取。此次服务器直连 Docker Hub 超时，经确认通过 GHCR 副本及 `ghcr.nju.edu.cn` 缓存传输；传输前后核对了镜像索引、平台 manifest、配置摘要和提交标签，与 Docker Hub 发布版本一致。正式环境仍使用上表的 Docker Hub 固定标签，没有在服务器上传源码或构建镜像。
+
+本次核验值为：
+
+```text
+Docker Hub / GHCR 镜像索引：sha256:a4e409b7d8ac53b76abb15e75ea612f090f779a51fd76b517f51605d98854042
+linux/amd64 镜像配置（docker image inspect 的 Id）：sha256:779f5e2940b9f17d86c56f4e915d3f1340a302cd9321b1f9322f5bb25fed82cb
+```
+
+这是本次传输记录，不表示其他加速源可直接信任。遇到直连失败时先处理网络或确认替代传输方式，核对官方摘要后再使用本地已加载镜像。索引摘要与镜像配置 Id 属于不同对象，不能相互比较。
+
+文档推送和 CI 发布不会自动 SSH 更新服务器。新 `latest` 不代表正式环境已升级；以 `release.json` 与运行容器为准。Compose 本身不自动维护发布记录，每次实际发布需同步记录提交、镜像、备份位置和验证结果。
+
+### 正式服务器的 Nginx 加载方式
+
+`https://tbtparent.me/surveys` 与已有业务共用域名和证书。使用 `-surveys` 应用镜像，将仓库中的 [Nginx 示例](../deploy/nginx/qingwen.conf.example) 保存为独立配置 `/etc/nginx/business/tbtparent-me/qingwen.conf`，在现有 HTTPS `server` 内加载，不新增同域名的 `server` 块。
+
+现有主配置包含 `/etc/nginx/business/tbtparent.me/*.conf`（点号目录）。为保留该入口，并将实际配置放在要求的连字符目录中，建立单个文件的符号链接：
+
+```sh
+sudo mkdir -p /etc/nginx/business/tbtparent-me /etc/nginx/business/tbtparent.me
+sudo curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/deploy/nginx/qingwen.conf.example -o /etc/nginx/business/tbtparent-me/qingwen.conf
+sudo ln -s /etc/nginx/business/tbtparent-me/qingwen.conf /etc/nginx/business/tbtparent.me/qingwen.conf
+sudo nginx -t
+# 仅在配置检查成功后重新加载。
+sudo systemctl reload nginx
+```
+
+已有该链接时无需重复创建；若同名文件已存在，先核对内容，不覆盖现有业务配置。确保上述通配符入口位于该域名的 HTTPS `server` 内，且该配置只加载一次。
+
+示例使用 `location = /surveys` 和 `location ^~ /surveys/`，均代理到 `http://127.0.0.1:3218`，`proxy_pass` 后不加 `/`，保留原始 `/surveys` URI。`^~` 避免静态资源被现有正则 location 截获；其他业务路径继续由原配置处理。
+
+配置完成后通过 `https://tbtparent.me/surveys` 登录，检查页面、静态资源、接口、分享链接与匿名填写。`APP_URL` 默认留空；如确需固定，可填 `https://tbtparent.me`，应用会自动附加 `/surveys`。
 
 ## 参考
 
