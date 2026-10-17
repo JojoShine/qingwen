@@ -1,0 +1,52 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: survey
+      POSTGRES_USER: survey
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env.docker 中配置数据库密码}
+    volumes:
+      - survey_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U survey -d survey"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    image: ${QINGWEN_MIGRATION_IMAGE:-qingwen-migrate:local}
+    build:
+      context: .
+      target: migrator
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://survey:${POSTGRES_PASSWORD:?请配置数据库密码}@db:5432/survey?schema=public
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_NAME: ${ADMIN_NAME:-管理员}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    image: ${QINGWEN_IMAGE:-qingwen:local}
+    build:
+      context: .
+      target: runner
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-3218}:3000"
+    environment:
+      DATABASE_URL: postgresql://survey:${POSTGRES_PASSWORD:?请配置数据库密码}@db:5432/survey?schema=public
+      APP_URL: ${APP_URL:?请在 .env.docker 中配置外部访问地址}
+      TRUSTED_CLIENT_IP_HEADER: ${TRUSTED_CLIENT_IP_HEADER:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  survey_pgdata:

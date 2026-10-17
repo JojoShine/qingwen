@@ -1,0 +1,87 @@
+import { test, expect } from '@playwright/test';
+import { newQuestion } from '../src/lib/survey';
+
+test('banner uploads and captions persist, and background themes reach mobile and PC filling pages', async ({ page, browser }) => {
+  expect((await page.request.post('/api/auth/login', { data: { username: process.env.ADMIN_USERNAME || 'admin', password: process.env.ADMIN_PASSWORD } })).ok()).toBe(true);
+  const survey = await (await page.request.post('/api/surveys', { data: { title: '外观完整链路验收' } })).json();
+  const guest = await browser.newContext();
+  try {
+    expect((await page.request.patch(`/api/surveys/${survey.id}`, { data: { content: [newQuestion('single')] } })).ok()).toBe(true);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(`/surveys/${survey.id}/edit`);
+    expect(await page.getByRole('textbox', { name: '问卷说明', exact: true }).evaluate(el => getComputedStyle(el).fontWeight)).toBe('400');
+    await page.getByRole('tab', { name: '外观' }).click();
+    await page.getByRole('button', { name: '页面背景：晴空蔚蓝', exact: true }).click();
+    await page.getByRole('button', { name: 'Banner 模板：日落杏色', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Banner 主标题', exact: true }).fill('团队声音，共同听见');
+    await page.getByRole('textbox', { name: 'Banner 副标题', exact: true }).fill('TEAM VOICES');
+    await expect(page.locator('.editor-paper .banner-caption strong')).toHaveText('团队声音，共同听见');
+    await expect(page.locator('.editor-device')).toHaveClass(/bg-blue/);
+    expect((await page.locator('.editor-device').boundingBox())!.width).toBe(390);
+    const image = Buffer.from(await page.evaluate(() => { const c = document.createElement('canvas'); c.width = 1200; c.height = 360; const ctx = c.getContext('2d')!; ctx.fillStyle = '#7d9e91'; ctx.fillRect(0, 0, 1200, 360); ctx.fillStyle = '#afc9bc'; ctx.beginPath(); ctx.arc(1050, 80, 250, 0, Math.PI * 2); ctx.fill(); return c.toDataURL('image/png').split(',')[1]; }), 'base64');
+    const upload = page.getByLabel('上传 Banner 图片', { exact: true });
+    await expect(upload).toBeHidden();
+    await upload.setInputFiles({ name: 'invalid.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg/>') });
+    await expect(page.getByText('请选择 PNG、JPG 或 WebP 图片', { exact: true })).toBeVisible();
+    await expect(page.locator('.editor-paper .survey-banner')).toHaveClass(/banner-warm/);
+    await expect(page.getByText('请选择 PNG、JPG 或 WebP 图片', { exact: true })).toBeHidden();
+    await upload.setInputFiles({ name: 'team-banner.png', mimeType: 'image/png', buffer: image });
+    await expect(page.locator('.editor-paper .survey-banner')).toHaveClass(/banner-custom/);
+    await page.locator('.properties-panel').evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await page.screenshot({ path: 'artifacts/appearance/settings.png' });
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(page.getByText('所有更改已保存', { exact: true })).toBeVisible();
+    await page.reload();
+    await expect(page.locator('.editor-paper .banner-caption strong')).toHaveText('团队声音，共同听见');
+    await expect(page.locator('.editor-paper .banner-image')).toBeVisible();
+    for (const width of [1920, 1440, 1280, 1024, 768, 390]) {
+      await page.setViewportSize({ width, height: 1000 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      if (width > 700) expect((await page.locator('.editor-device').boundingBox())!.width).toBe(390);
+      if ([1440,1280,390].includes(width)) await page.screenshot({ path: `artifacts/appearance/editor-${width}.png` });
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.getByRole('tab', { name: '外观' }).click();
+    await page.getByRole('textbox', { name: 'Banner 主标题', exact: true }).fill('');
+    await expect(page.locator('.editor-paper .banner-caption strong')).toHaveCount(0);
+    await page.getByRole('textbox', { name: 'Banner 主标题', exact: true }).fill('团队声音，共同听见');
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(page.getByText('所有更改已保存', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '发布问卷', exact: true }).click();
+    await page.getByRole('button', { name: '确认发布', exact: true }).click();
+    await expect(page.getByText('让更多声音被听见', { exact: true })).toBeVisible();
+    const form = await guest.newPage();
+    await form.setViewportSize({ width: 390, height: 844 });
+    await form.goto(`http://localhost:3218/s/${survey.shareId}`);
+    await expect(form.locator('.banner-caption strong')).toHaveText('团队声音，共同听见');
+    expect(await form.locator('.survey-banner').ariaSnapshot()).toContain('团队声音，共同听见');
+    await expect.poll(() => form.locator('.banner-image').evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+    const mobile = await form.locator('.public-sheet').boundingBox();
+    expect(mobile!.x).toBe(0); expect(mobile!.width).toBe(390);
+    expect(await form.locator('.public-survey').evaluate(el => getComputedStyle(el).backgroundImage)).not.toBe('none');
+    expect(await form.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await form.screenshot({ path: 'artifacts/appearance/public-mobile.png', fullPage: true });
+    await page.goto(`/surveys/${survey.id}/edit`);
+    await page.getByRole('tab', { name: '外观' }).click();
+    await page.getByRole('radio', { name: 'PC 端', exact: true }).check();
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(page.getByText('所有更改已保存', { exact: true })).toBeVisible();
+    await form.setViewportSize({ width: 1440, height: 1000 });
+    await form.reload();
+    await expect(form.locator('.public-sheet')).toHaveClass(/public-desktop/);
+    expect((await form.locator('.public-sheet').boundingBox())!.width).toBeGreaterThan(700);
+    expect(await form.locator('.public-survey').evaluate(el => getComputedStyle(el).backgroundImage)).not.toBe('none');
+    await form.screenshot({ path: 'artifacts/appearance/public-desktop.png', fullPage: true });
+    await page.getByRole('button', { name: /移除图片/ }).click();
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(page.getByText('所有更改已保存', { exact: true })).toBeVisible();
+    await form.reload();
+    await expect(form.locator('.survey-banner')).toHaveCount(0);
+    await page.goto('/surveys');
+    await page.locator('.card-title').first().waitFor();
+    await page.screenshot({ path: 'artifacts/appearance/workspace.png' });
+  } finally {
+    await guest.close();
+    await page.request.delete(`/api/surveys/${survey.id}`);
+  }
+});

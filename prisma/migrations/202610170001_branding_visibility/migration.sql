@@ -1,0 +1,1 @@
+ALTER TABLE "Survey" ADD COLUMN "showBranding" BOOLEAN NOT NULL DEFAULT true;

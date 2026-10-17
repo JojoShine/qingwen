@@ -1,0 +1,58 @@
+import { test, expect } from '@playwright/test';
+import { newQuestion } from '../src/lib/survey';
+
+test('Other defaults to multiline, supports a saved single-line mode and rating follows the theme', async ({ page, browser }) => {
+  await page.request.post('/api/auth/login', { data: { username: process.env.ADMIN_USERNAME || 'admin', password: process.env.ADMIN_PASSWORD } });
+  const survey = await (await page.request.post('/api/surveys', { data: { title: '其他填空与评分样式验收' } })).json();
+  const multi = newQuestion('multiple'); multi.title = '选择关注方面'; multi.other = true;
+  const single = newQuestion('single'); single.title = '选择建议类别'; single.other = true;
+  delete multi.otherInputMode; delete single.otherInputMode;
+  const rating = newQuestion('rating'); rating.title = '满意度';
+  const guest = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  try {
+    await page.request.patch(`/api/surveys/${survey.id}`, { data: { content: [multi,single,rating] } });
+    await page.goto(`/surveys/${survey.id}/edit`);
+    await expect(page.getByRole('radio', { name: '多行输入', exact: true })).toBeChecked();
+    await page.getByRole('radio', { name: '单行输入', exact: true }).check();
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(page.getByText('所有更改已保存', { exact: true })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole('radio', { name: '单行输入', exact: true })).toBeChecked();
+    const saved = await (await page.request.get(`/api/surveys/${survey.id}`)).json();
+    expect(saved.content[0].otherInputMode).toBe('single');
+    await page.getByRole('button', { name: /预览/ }).click();
+    const frame = page.frameLocator('iframe[title="手机问卷预览"]');
+    const choice = frame.locator(`#question-${multi.id}`), category = frame.locator(`#question-${single.id}`);
+    await choice.getByRole('checkbox', { name: '其他', exact: true }).check();
+    expect(await choice.getByRole('textbox', { name: '其他补充内容' }).evaluate(el => el.tagName)).toBe('INPUT');
+    await choice.getByRole('textbox', { name: '其他补充内容' }).fill('简短建议');
+    await category.getByRole('radio', { name: '其他', exact: true }).check();
+    const textarea = category.getByRole('textbox', { name: '其他补充内容' });
+    expect(await textarea.evaluate(el => el.tagName)).toBe('TEXTAREA');
+    await textarea.fill('第一行建议\n第二行建议');
+    const stars = frame.locator('.rating-field .ant-rate-star');
+    await stars.nth(3).click();
+    await expect(frame.locator('.rating-field .ant-rate-star-full')).toHaveCount(4);
+    await expect.poll(() => stars.first().locator('.ant-rate-star-second svg').evaluate(el => getComputedStyle(el).color)).toBe('rgb(22, 136, 120)');
+    await frame.getByRole('button', { name: /提交问卷/ }).click();
+    await expect(frame.getByText('预览校验通过，正式发布后即可提交答卷')).toBeVisible();
+    await page.getByRole('dialog', { name: '问卷预览' }).locator('.ant-modal-close').click();
+    await page.request.post(`/api/surveys/${survey.id}/action`, { data: { action: 'publish' } });
+    const form = await guest.newPage();
+    await form.goto(`http://localhost:3218/s/${survey.shareId}`);
+    await form.locator(`#question-${multi.id}`).getByRole('checkbox', { name: '其他', exact: true }).check();
+    await form.locator(`#question-${multi.id}`).getByRole('textbox', { name: '其他补充内容' }).fill('简短建议');
+    const publicCategory = form.locator(`#question-${single.id}`);
+    await publicCategory.getByRole('radio', { name: '其他', exact: true }).check();
+    await publicCategory.getByRole('textbox', { name: '其他补充内容' }).fill('第一行建议\n第二行建议');
+    await form.locator('.rating-field .ant-rate-star').nth(3).click();
+    await expect.poll(() => form.locator('.rating-field .ant-rate-star-full .ant-rate-star-second svg').first().evaluate(el => getComputedStyle(el).color)).toBe('rgb(22, 136, 120)');
+    await publicCategory.scrollIntoViewIfNeeded();
+    await form.screenshot({ path: 'artifacts/other-rating/mobile.png', fullPage: true });
+    await form.getByRole('button', { name: /提交问卷/ }).click();
+    await expect(form.getByText('提交成功，感谢你的参与')).toBeVisible();
+    const results = await (await page.request.get(`/api/surveys/${survey.id}/results`)).json();
+    expect(results.items[0].answers[single.id].other).toBe('第一行建议\n第二行建议');
+    expect(results.items[0].answers[rating.id].value).toBe(4);
+  } finally { await guest.close(); await page.request.delete(`/api/surveys/${survey.id}`); }
+});

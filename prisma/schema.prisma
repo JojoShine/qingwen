@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+}
+enum Role {
+  ADMIN
+  USER
+}
+enum SurveyStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+}
+model User {
+  id String @id @default(cuid())
+  username String @unique
+  name String
+  passwordHash String
+  role Role @default(USER)
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sessions Session[]
+  surveys Survey[]
+}
+model Session {
+  tokenHash String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([userId])
+}
+model LoginAttempt {
+  key String @id
+  count Int @default(0)
+  expiresAt DateTime
+}
+model Survey {
+  id String @id @default(cuid())
+  ownerId String
+  owner User @relation(fields: [ownerId], references: [id])
+  shareId String @unique @default(uuid())
+  title String @default("未命名问卷")
+  description String @default("")
+  status SurveyStatus @default(DRAFT)
+  platform String @default("mobile")
+  background String @default("mint")
+  banner String @default("mint")
+  bannerTitle String?
+  bannerSubtitle String?
+  bannerImage String? @db.Text
+  showBranding Boolean @default(true)
+  brandName String @default("轻问.")
+  brandDescription String @default("提供支持，让每一份回答都有价值")
+  startsAt DateTime?
+  endsAt DateTime?
+  maxResponses Int?
+  browserLimit Int?
+  ipLimit Int?
+  content Json @default("[]")
+  publishedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  responses Response[]
+  @@index([ownerId, updatedAt])
+}
+model Response {
+  id String @id @default(cuid())
+  surveyId String
+  survey Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  submissionKey String
+  answers Json
+  isValid Boolean @default(true)
+  browserHash String?
+  ipHash String?
+  titleSnapshot String
+  createdAt DateTime @default(now())
+  @@unique([surveyId, submissionKey])
+  @@index([surveyId, createdAt])
+  @@index([surveyId, browserHash])
+  @@index([surveyId, ipHash])
+  @@index([surveyId, isValid, createdAt])
+}
