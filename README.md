@@ -57,17 +57,25 @@ chmod 600 .env.docker
 编辑 `.env.docker`，填写 `POSTGRES_PASSWORD`（可用 `openssl rand -hex 24` 生成）和至少 8 位的 `ADMIN_PASSWORD`。默认 `QINGWEN_IMAGE=docker.io/jojoshine/qingwen:latest`，`APP_URL` 留空即可自动获取当前访问地址。不要设置 `DATABASE_URL`，容器自动连接内置数据库。
 
 ```sh
-docker compose --env-file .env.docker -f compose.prod.yaml pull &&
-docker compose --env-file .env.docker -f compose.prod.yaml up -d --no-build --wait
-docker compose --env-file .env.docker -f compose.prod.yaml ps
-docker compose --env-file .env.docker -f compose.prod.yaml logs --tail=100 app
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml pull &&
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml up -d --no-build --wait
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml ps
+docker compose -p qingwen --env-file .env.docker -f compose.prod.yaml logs --tail=100 app
 ```
 
-本机访问 <http://localhost:3218/login>，使用配置的管理员账号和密码。默认仅监听 `127.0.0.1:3218`，正式对外服务需配置 HTTPS 反向代理。内置 PostgreSQL 仅监听容器内部 loopback；数据挂载到 `qingwen_data` 命名卷。停止服务使用 `down`，保留数据卷。
+本机访问 <http://localhost:3218/login>，使用配置的管理员账号和密码。默认仅监听 `127.0.0.1:3218`，正式对外服务需配置 HTTPS 反向代理。内置 PostgreSQL 仅监听容器内部 loopback；数据挂载到 Compose 的 `qingwen_data` 卷，固定项目名 `qingwen` 后实际卷名为 `qingwen_qingwen_data`。停止服务使用 `down`，保留数据卷，不使用 `down -v`。
 
 部署 `/surveys` 时选择 `docker.io/jojoshine/qingwen:latest-surveys`，路径前缀在构建时写入，不能通过运行时变量修改。公开安装镜像默认从 Docker Hub 获取，GHCR 保留同版本副本。GitHub CI 验证单容器启动、重建保留数据和备份恢复后才发布镜像；推送 GitHub 不会自动更新服务器。
 
-**已有部署升级需注意**：旧版独立 PostgreSQL 容器或宿主机数据库的数据不会自动搬入新卷。先备份，再按[迁入内置数据库](docs/DEPLOYMENT.md#四迁入内置数据库)步骤导入。当前 `tbtparent.me` 的已有库仍保持原状，旧外部数据库配置仅作为迁移过渡兼容。
+**已有部署升级需注意**：旧版独立 PostgreSQL 容器或宿主机数据库的数据不会自动搬入新卷。先备份，再按[迁入内置数据库](docs/DEPLOYMENT.md#四迁入内置数据库)步骤导入。正式环境已完成这一迁移；宿主机旧库仅保留作回退依据，不再承担应用读写。旧外部数据库配置只用于尚未迁移的历史部署。
+
+### 当前正式环境
+
+[正式入口](https://tbtparent.me/surveys/login) 已于 **2026-10-18（北京时间）** 切换为内置 PostgreSQL 的单容器部署，目录为 `/opt/qingwen`，实际使用 `compose.prod.yaml` 与 `.env.docker`。当前固定版本为 `56260bca01fa839109d75e4e539170b6eeb1ce61` 的 `-surveys` 镜像；原账号、问卷和答卷已迁移并逐表核对。`/surveys` 路径、`127.0.0.1:3218` 端口及原独立 Nginx 配置保持不变。
+
+Docker Hub 是默认镜像来源。本次正式切换因直连超时，经确认使用与 Docker Hub 摘要一致的 GHCR 副本传输；部署配置仍固定为 Docker Hub 发布标签。后续文档提交或镜像发布不会自动更新正式服务器，实际运行版本以服务器 `release.json` 和容器状态为准。
+
+日常升级：先[备份数据库与配置](docs/DEPLOYMENT.md#备份)，固定目标版本，再拉取并重建同一容器；入口自动迁移，不再单独执行迁移或初始化命令。恢复：先停止应用，再通过同一镜像的 `app restore` 导入备份，成功后启动。完整的[安装、备份、恢复与升级流程](docs/DEPLOYMENT.md#五备份换机恢复与升级)包含命令、校验及回退说明。
 
 安装、备份、换机恢复、固定版本和独立 Nginx 配置见[部署文档](docs/DEPLOYMENT.md)。本地源码开发仍使用 `.env` 和 `compose.yaml`，后者只启动开发数据库，与用户的单容器安装分开。
 
