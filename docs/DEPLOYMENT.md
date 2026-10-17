@@ -2,14 +2,52 @@
 
 本文提供 Docker 镜像部署和源码部署两条路径。当前 `tbtparent.me` 服务器使用 `/opt/qingwen` 下的镜像部署，复用本机原生 PostgreSQL 14.24 中已有的 `qingwen` 数据库；不启动生产数据库容器。新环境需要 PostgreSQL 数据库迁移和管理员初始化；用户、问卷、答卷、会话和 Banner 图片均存储在 PostgreSQL 中。
 
+## 先看真实执行链路
+
+| 场景 | 配置文件 | 实际启动内容 | 访问与数据库地址 |
+| --- | --- | --- | --- |
+| 本地源码开发 | `.env`、可选 `compose.yaml` | 本机 `pnpm dev`；Compose 只运行 `db` | 应用 `localhost:3218`；数据库 `localhost:5436/survey` |
+| Docker 全新安装 | `.env.docker`、`compose.prod.yaml` | GHCR 应用、迁移工具、PostgreSQL 三个服务 | 宿主机 `127.0.0.1:3218` → 应用容器 `3000`；数据库 `db:5432/survey` |
+| Docker 复用已有库 | `.env.external-db`、`compose.external-db.yaml` | GHCR 应用及一次性迁移工具；没有 `db` 服务 | 应用端口同上；数据库地址取自 `DATABASE_URL` |
+
+**当前正式环境**：第三种方案，宿主机数据库为 `qingwen`，应用使用 `/surveys` 构建变体，Nginx 将 `https://tbtparent.me/surveys` 代理至 `127.0.0.1:3218`。部署目录是 `/opt/qingwen`，独立 Nginx 业务文件是 `/etc/nginx/business/tbtparent-me/qingwen.conf`。
+
+几个容易混淆的操作分别是：
+
+| 操作 | 本项目实际行为 |
+| --- | --- |
+| `pnpm db:generate` | 按 Prisma schema 生成客户端，不连接数据库建表 |
+| `pnpm db:migrate` | 执行 `prisma migrate deploy`，只应用未执行过的迁移，不创建登录账号 |
+| `pnpm db:seed` | 创建配置的管理员；同名用户已存在则不改密码，不生成业务示例 |
+| `pnpm db:demo` | 生成示例问卷和答卷，必须在已有管理员后显式执行；不创建体验用户 |
+| `pnpm build` / Docker 构建 | 编译应用或打包迁移工具，不迁移生产数据库，也不初始化账号 |
+| `app` 容器启动 | 运行 `node server.js`，不执行 migrate/seed；镜像健康检查只请求 `<basePath>/login` |
+| 直接 `docker compose up` | Compose 依赖关系会先调度 `migrate`，迁移成功后启动 `app`；这是 Compose 的行为，不是应用入口自动迁移 |
+
+本文的分步安装/升级命令显式执行 `migrate`，然后用 `up --no-deps ... app` 启动应用，避免再次调度迁移任务。`run --rm` 的一次性容器成功后会被删除；如果直接 `up`，保留下来的 `migrate` 容器显示 `Exited (0)` 属于正常结果。迁移、初始化、启动任一步失败，都先排错再继续。
+
 ## 一、部署前准备
 
 - Docker 路径：Docker Engine / Docker Desktop、Docker Compose v2、curl；服务器需要访问 GitHub 配置文件、GHCR 和 Docker Hub，无需 Git、Node.js、pnpm 或源码构建环境。当前发布镜像支持 Linux amd64。
-- 源码路径：Node.js 22.12+（推荐 Node.js 22 LTS）、pnpm 10.26.0、PostgreSQL 17、Git。
+- 源码路径：Node.js 22.12+（Docker 和 CI 均使用 22）、pnpm 10.26.0、Git 和 PostgreSQL；配套数据库镜像及 CI 使用 PostgreSQL 17，当前正式库已验证为 14.24。
 - 正式对外服务：域名、HTTPS 证书与反向代理。生产会话 Cookie 标记为 Secure，使用普通 HTTP 的远程地址无法正常保持登录。
 - 应用运行资源按问卷规模调整；镜像由 GitHub Actions 构建，生产服务器只拉取和运行镜像。
 
 GHCR 应用与迁移镜像应设置为公开可见，生产服务器可匿名拉取，无需保存 GitHub token。首次发布后，维护者需在 GitHub Packages 中确认两个包的可见性为 Public。
+
+### 安装 Docker 本身
+
+- Linux：按发行版使用 [Docker Engine 官方安装步骤](https://docs.docker.com/engine/install/)；Ubuntu 对应[官方 apt 仓库安装方式](https://docs.docker.com/engine/install/ubuntu/)，需要 Engine 和 Compose 插件。
+- macOS / Windows：安装并启动 [Docker Desktop](https://docs.docker.com/desktop/)，其中包含 Compose。
+
+安装后执行以下检查；Linux 没有 Docker socket 访问权限时，在 Docker 命令前加 `sudo`：
+
+```sh
+docker info
+docker compose version
+```
+
+Docker 能支持 ARM 不代表轻问已发布 ARM 镜像：当前 CI 只构建 `linux/amd64`。ARM 电脑优先使用下文的本地源码开发；需要运行发布镜像时，必须另行配置 amd64 仿真。以下镜像安装步骤以 amd64 环境为准。
 
 ## 二、Docker 镜像部署
 
@@ -72,19 +110,20 @@ chmod 600 backups/qingwen-before-migrate.dump
 确认备份成功、数据库连接和权限可用后，再启动：
 
 ```sh
-docker compose --env-file .env.external-db -f compose.external-db.yaml pull
-docker compose --env-file .env.external-db -f compose.external-db.yaml up -d --no-build
-docker compose --env-file .env.external-db -f compose.external-db.yaml run --rm --no-deps migrate pnpm db:seed
+docker compose --env-file .env.external-db -f compose.external-db.yaml pull &&
+docker compose --env-file .env.external-db -f compose.external-db.yaml run --rm --no-deps -T migrate </dev/null &&
+docker compose --env-file .env.external-db -f compose.external-db.yaml run --rm --no-deps -T migrate pnpm db:seed </dev/null &&
+docker compose --env-file .env.external-db -f compose.external-db.yaml up -d --no-deps --no-build --wait app
 docker compose --env-file .env.external-db -f compose.external-db.yaml ps -a
 docker compose --env-file .env.external-db -f compose.external-db.yaml logs --tail=100 app migrate
 curl -I http://127.0.0.1:3218/surveys/login
 ```
 
-迁移成功后应用才会启动；`migrate` 显示 `Exited (0)` 是正常结果。`db:seed` 仅初始化管理员，已有同名账号的密码不会被覆盖。使用下文 Nginx 配置后，通过 `https://tbtparent.me/surveys` 登录。此方案的所有后续 Compose 命令均使用 `--env-file .env.external-db -f compose.external-db.yaml`；不要同时运行下面的新建数据库方案。
+`&&` 确保先完成迁移和管理员初始化，再启动应用。`db:seed` 不会覆盖已有同名账号的密码，升级不需要重跑。`app` 应显示 healthy；再实际登录一次确认数据库和账号可用，单独的 `/login` 健康响应不能证明数据库查询成功。使用下文 Nginx 配置后，通过 `https://tbtparent.me/surveys/login` 登录。此方案的所有后续 Compose 命令均使用 `--env-file .env.external-db -f compose.external-db.yaml`；不要同时运行下面的新建数据库方案。
 
 ### 可选：登录页展示体验账号
 
-先在用户管理中创建一个普通测试账号，再在部署环境文件中设置 `DEMO_USERNAME` 和 `DEMO_PASSWORD`，重建应用容器即可在登录页公开展示凭据，并提供“填入账号”按钮。两项默认留空，均配置后才显示；这些配置不创建用户，也不重置密码。请勿配置管理员凭据。`DEMO_USERNAME` 同时标识体验账号：该账号不展示个人设置，直接访问设置页会返回问卷列表，修改密码接口也会拒绝请求。仅关闭登录页凭据展示时，清空 `DEMO_PASSWORD` 并保留 `DEMO_USERNAME`，重建应用后仍保留账号保护；清空两项会同时取消体验账号保护。需要停止测试时在用户管理中禁用该账号。
+先在用户管理中创建一个普通测试账号，再在部署环境文件中设置 `DEMO_USERNAME` 和 `DEMO_PASSWORD`，重建应用容器即可在登录页提供“填入体验账号”按钮。当前页面不把密码单独列成文字，但按钮能填入凭据，因此仍应把它视为公开体验账号。两项默认留空，均配置后才显示；这些配置不创建用户，也不重置密码。请勿配置管理员凭据。`DEMO_USERNAME` 同时标识体验账号：该账号不展示个人设置，直接访问设置页会返回问卷列表，修改密码接口也会拒绝请求。仅关闭体验入口时，清空 `DEMO_PASSWORD` 并保留 `DEMO_USERNAME`，重建应用后仍保留账号保护；清空两项会同时取消体验账号保护。需要停止测试时在用户管理中禁用该账号。
 
 ### 2. 可选：新安装时使用 PostgreSQL 容器
 
@@ -131,13 +170,15 @@ APP_PORT=3218
 ### 3. 容器数据库方案的拉取与启动
 
 ```sh
-docker compose --env-file .env.docker -f compose.prod.yaml pull
-docker compose --env-file .env.docker -f compose.prod.yaml up -d --no-build
-docker compose --env-file .env.docker -f compose.prod.yaml run --rm --no-deps migrate pnpm db:seed
+docker compose --env-file .env.docker -f compose.prod.yaml pull &&
+docker compose --env-file .env.docker -f compose.prod.yaml up -d --wait db &&
+docker compose --env-file .env.docker -f compose.prod.yaml run --rm --no-deps -T migrate </dev/null &&
+docker compose --env-file .env.docker -f compose.prod.yaml run --rm --no-deps -T migrate pnpm db:seed </dev/null &&
+docker compose --env-file .env.docker -f compose.prod.yaml up -d --no-deps --no-build --wait app
 docker compose --env-file .env.docker -f compose.prod.yaml ps -a
 ```
 
-启动顺序为 PostgreSQL 健康 → `migrate` 执行全部待应用迁移 → 应用启动。`migrate` 显示 `Exited (0)` 是正常结果；`app` 应显示 healthy。迁移失败时应用不会启动，请先检查日志。管理员初始化命令可重复执行，已有同名账号的密码不会被覆盖。
+首次启动顺序为 PostgreSQL 健康 → 迁移成功 → 初始化管理员 → 应用启动。`app` 应显示 healthy；任何一步失败时 `&&` 链停止。管理员初始化命令可重复执行，已有同名账号的密码不会被覆盖。宿主机不发布数据库端口；数据库数据保存在 `survey_pgdata` 命名卷中。
 
 根路径镜像本机访问 <http://localhost:3218>；`-surveys` 镜像本机访问 <http://localhost:3218/surveys>。正式服务使用 HTTPS 域名，`APP_URL` 留空即可自动获取访问地址；localhost 链接无法从另一台设备扫码访问。
 
@@ -151,6 +192,8 @@ curl -I http://127.0.0.1:3218/surveys/login
 
 [CI and GHCR 工作流](../.github/workflows/ci.yml) 在单元测试、接口集成测试、类型检查、生产构建和浏览器测试通过后构建并发布 GHCR 镜像。PR 执行检查，推送到 `main` 或手动触发工作流后发布镜像；服务器只执行 `pull` 和 `up -d --no-build`。应用与迁移工具分别交付：
 
+当前仓库只有这个工作流：先在临时 PostgreSQL 中初始化并运行源码测试，再并行构建根路径应用、`/surveys` 应用及迁移工具三个镜像产物。Dockerfile 最终目标实际叫 `runner` 和 `migrator`；应用容器端口实际是 `3000`。当前没有 `vX.Y.Z` 标签发布任务、GitHub Release 部署附件或自动 SSH 上线任务；推送 GitHub 不代表服务器已经更新。
+
 - 应用：Next.js standalone 与静态文件，以非 root 用户运行，包含健康检查，不携带管理员密码或迁移 CLI。
 - 迁移工具：Prisma、迁移文件和管理员初始化工具，以非 root 用户运行，默认执行 `pnpm db:migrate`。
 
@@ -162,6 +205,10 @@ curl -I http://127.0.0.1:3218/surveys/login
 | `/surveys`，固定提交 | `ghcr.io/jojoshine/qingwen:sha-<完整提交哈希>-surveys` | `ghcr.io/jojoshine/qingwen-migrate:sha-<完整提交哈希>` |
 
 生产推荐固定同一提交的不可变标签，记录升级前后的两个镜像引用；不要混用不同提交的应用与迁移工具。密码仅在运行时传入，镜像不包含演示答卷。
+
+下载 Compose 时也应与镜像提交匹配：首次使用 `main` 下载是为了快速安装；固定版本部署时，将下载 URL 中的 `main` 换成通过 CI 的完整提交 SHA，并在环境文件中填写上表同一 SHA 的镜像标签。`latest` 是浮动标签；严格锁定镜像内容时使用 `ghcr.io/...@sha256:<digest>`。
+
+当前服务器的实际更新由部署操作单独完成：核验 CI → 解析官方 GHCR 摘要 → 拉取并核验镜像 → 备份数据库和配置 → 执行迁移 → `up --no-deps --no-build --wait app` → 检查线上入口，并在 `/opt/qingwen/release.json` 记录镜像与提交。该服务器曾遇到 GHCR blob 下载受阻，实际使用 `ghcr.nju.edu.cn` 缓存传输，校验官方 manifest/config 摘要和提交标签后再标记为官方镜像引用；这不涉及上传源码或服务器构建，也不应在其他环境未经核验直接替换镜像仓库。
 
 如需修改源码并自行构建，可在开发机或专用构建机执行以下可选流程；标准服务器部署不执行这些命令：
 
@@ -239,9 +286,49 @@ sudo systemctl reload nginx
 
 ## 三、源码部署
 
+### 本地开发：最短可执行链路
+
+本机安装 Node.js 22.12+、pnpm 10.26.0 和 Git；如果没有现成 PostgreSQL，启动 Docker 后使用仓库的开发数据库配置。以下步骤在克隆出的源码目录中执行：
+
+```sh
+git clone https://github.com/JojoShine/qingwen.git
+cd qingwen
+corepack enable
+corepack prepare pnpm@10.26.0 --activate
+pnpm install --frozen-lockfile
+cp .env.example .env
+chmod 600 .env
+```
+
+如果 Node.js 未提供 Corepack，用 `npm install --global pnpm@10.26.0` 代替两条 `corepack` 命令。编辑 `.env`，配置 `ADMIN_PASSWORD`；保留模板的数据库连接地址即可使用下列本地数据库容器。
+
+```sh
+docker compose -p qingwen-survey -f compose.yaml up -d --wait db &&
+pnpm db:generate &&
+pnpm db:migrate &&
+pnpm db:seed &&
+pnpm dev
+```
+
+打开 <http://localhost:3218/login>，使用 `.env` 中的管理员账号和密码。应用在本机 Node.js 中运行；Compose 只启动 PostgreSQL，通过 `127.0.0.1:5436` 映射到数据库容器 `5432`。如果已有 PostgreSQL，修改 `DATABASE_URL` 并跳过首条 Docker 命令。修改本地数据库密码时，需要同时匹配 `POSTGRES_PASSWORD` 与连接 URL，而不是只修改 URL。
+
+`pnpm dev` 本身不建表或创建账号。需要示例问卷时另行执行 `pnpm db:demo`，不在正式库自动生成。停止开发服务器使用 `Ctrl+C`；停止开发数据库使用 `docker compose -p qingwen-survey -f compose.yaml stop db`，保留数据卷。
+
+### 本地验证正式构建
+
+先停止当前开发服务器，在相同的数据库与环境配置下执行：
+
+```sh
+pnpm build && pnpm start
+```
+
+这仍然是源码运行，不涉及 GHCR。`pnpm start` 使用已生成的 `.next` 构建产物并监听 `3218`；生产模式依赖 Secure Cookie，localhost 可用于本机验证，对外的域名或局域网 IP 应通过 HTTPS 访问。开发和生产构建不要在同一源码目录同时运行。
+
+下面是将源码部署到长期运行的服务器的步骤；采用 GHCR 镜像部署时，不需要执行本节的 Node.js、pnpm 和 systemd 命令。
+
 ### 1. 准备数据库
 
-使用已有 PostgreSQL 17，或在数据库服务器安装 PostgreSQL。以数据库管理员身份创建专用账号和库：
+使用已有 PostgreSQL，或在数据库服务器安装 PostgreSQL（新环境可选配套使用的 17）。以数据库管理员身份创建专用账号和库：
 
 ```sh
 sudo -u postgres createuser --pwprompt survey
@@ -290,7 +377,7 @@ pnpm start
 pnpm exec next start --hostname 127.0.0.1 --port 3218
 ```
 
-源码部署默认使用常规 Next.js 构建，不需要 standalone 静态文件复制步骤。`BUILD_STANDALONE=1` 仅由 Docker 构建设置。若源码部署也需要 `/surveys`，在 `pnpm build` 前设置 `NEXT_PUBLIC_BASE_PATH=/surveys`；更改路径后需重新构建。不要在同一目录同时运行开发服务器和生产构建。
+源码部署默认使用常规 Next.js 构建，不需要 standalone 静态文件复制步骤。`BUILD_STANDALONE=1` 仅由 Docker 构建设置。若源码部署也需要 `/surveys`，在 `.env` 中设置 `NEXT_PUBLIC_BASE_PATH=/surveys` 后再执行 `pnpm build`，启动时保留同一配置；更改路径后需重新构建。不要在同一目录同时运行开发服务器和生产构建。
 
 ### 3. systemd 示例（Linux）
 
@@ -347,13 +434,14 @@ journalctl -u qingwen -n 100 --no-pager
 ```sh
 cd /opt/qingwen
 # 在 .env.external-db 中将应用和迁移镜像改为目标提交的配套标签。
-docker compose --env-file .env.external-db -f compose.external-db.yaml pull
-docker compose --env-file .env.external-db -f compose.external-db.yaml stop app
-docker compose --env-file .env.external-db -f compose.external-db.yaml run --rm migrate
-docker compose --env-file .env.external-db -f compose.external-db.yaml up -d --no-build
+docker compose --env-file .env.external-db -f compose.external-db.yaml pull &&
+docker compose --env-file .env.external-db -f compose.external-db.yaml run --rm --no-deps -T migrate </dev/null &&
+docker compose --env-file .env.external-db -f compose.external-db.yaml up -d --no-deps --no-build --wait app
 ```
 
-使用容器数据库方案时，上述命令改为 `--env-file .env.docker -f compose.prod.yaml`。若部署配置本身有更新，先从目标提交下载对应 Compose 文件并审核差异；不要覆盖已有环境配置。回退应用时将镜像引用改回已记录的版本，重新拉取并启动，同时核对数据库兼容性。
+上述命令以向后兼容的增量迁移为前提，迁移失败时不切换旧应用；涉及不兼容结构变更时需单独安排停机。升级不执行 `db:seed`，也不生成示例数据。
+
+使用容器数据库方案时，上述命令改为 `--env-file .env.docker -f compose.prod.yaml`，并确认已有 `db` 服务仍正常运行。若部署配置本身有更新，先从目标提交下载对应 Compose 文件并审核差异；不要覆盖已有环境配置。回退应用时将镜像引用改回已记录的版本，重新拉取并用 `up --no-deps --no-build --wait app` 启动，同时核对数据库兼容性；不自动恢复数据库备份。
 
 源码部署：
 
@@ -433,6 +521,8 @@ docker compose --env-file .env.docker -f compose.prod.yaml up -d --no-build
 
 ## 参考
 
+- [Docker Engine 安装](https://docs.docker.com/engine/install/)
+- [Docker Desktop 安装](https://docs.docker.com/desktop/)
 - [Docker Compose 启动依赖](https://docs.docker.com/compose/how-tos/startup-order/)
 - [Next.js standalone 输出](https://nextjs.org/docs/app/api-reference/config/next-config-js/output)
 - [Prisma 7 生产迁移](https://www.prisma.io/docs/orm/v7/prisma-client/deployment/deploy-migrations-from-a-local-environment)

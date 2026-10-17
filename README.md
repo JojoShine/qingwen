@@ -37,6 +37,20 @@
 
 需要 Docker Engine / Docker Desktop 与 Docker Compose v2。服务器直接拉取 GitHub Actions 发布的 GHCR 公开镜像，无需下载源码或在服务器构建；当前镜像支持 Linux amd64。
 
+Docker 安装见 [Linux Docker Engine](https://docs.docker.com/engine/install/) 或 [Docker Desktop](https://docs.docker.com/desktop/)。安装后先确认 `docker info` 和 `docker compose version` 均成功。Compose 使用 `docker compose` 命令。
+
+### 先选对部署方式
+
+| 场景 | 使用的文件 | 应用在哪里运行 | 数据库在哪里 |
+| --- | --- | --- | --- |
+| 本地源码开发 | `.env`、`compose.yaml`（可选） | 本机 Node.js，端口 `3218` | 本地数据库容器通过 `127.0.0.1:5436` 访问，或已有 PostgreSQL |
+| Docker 全新安装 | `.env.docker`、`compose.prod.yaml` | GHCR 应用镜像，宿主机 `127.0.0.1:3218` → 容器 `3000` | Compose 自带 PostgreSQL，应用连接 `db:5432` |
+| Docker 连接已有数据库 | `.env.external-db`、`compose.external-db.yaml` | 同上 | `DATABASE_URL` 指定的 PostgreSQL；当前正式环境使用宿主机的 `qingwen` 库 |
+
+这三个 Compose 文件分别独立使用，不能把 `compose.yaml` 当成全栈容器部署，也不需要合并运行。以下是**已有数据库**方案；在自己电脑从零体验 Docker 版本，使用[全新安装步骤](docs/DEPLOYMENT.md#2-可选新安装时使用-postgresql-容器)。
+
+实际发布链路：**提交 main → GitHub CI 检查与测试 → 构建应用/迁移镜像 → 推送 GHCR → 部署人员在服务器拉取 → 迁移 → 启动应用 → Nginx 提供 HTTPS**。当前工作流不自动 SSH 部署服务器；首次管理员初始化是另外一次显式操作。
+
 已有 PostgreSQL 时使用以下配置。当前 `tbtparent.me` 服务器复用本机原生 PostgreSQL 的 `qingwen` 数据库，不启动数据库容器：
 
 ```sh
@@ -53,19 +67,20 @@ chmod 600 .env.external-db
 部署到已有域名的 `https://tbtparent.me/surveys` 时，将 `QINGWEN_IMAGE` 设置为 `ghcr.io/jojoshine/qingwen:latest-surveys`，迁移镜像仍为 `ghcr.io/jojoshine/qingwen-migrate:latest`。`APP_URL` 默认留空；需要固定分享域名时填写不带路径的 origin。路径已在镜像构建时写入，不能通过运行时环境变量修改。
 
 ```sh
-docker compose --env-file .env.external-db -f compose.external-db.yaml pull
-docker compose --env-file .env.external-db -f compose.external-db.yaml up -d --no-build
-docker compose --env-file .env.external-db -f compose.external-db.yaml run --rm --no-deps migrate pnpm db:seed
+docker compose --env-file .env.external-db -f compose.external-db.yaml pull &&
+docker compose --env-file .env.external-db -f compose.external-db.yaml run --rm --no-deps -T migrate </dev/null &&
+docker compose --env-file .env.external-db -f compose.external-db.yaml run --rm --no-deps -T migrate pnpm db:seed </dev/null &&
+docker compose --env-file .env.external-db -f compose.external-db.yaml up -d --no-deps --no-build --wait app
 docker compose --env-file .env.external-db -f compose.external-db.yaml ps -a
 ```
 
-应用默认仅绑定 `127.0.0.1:3218`；对外服务配置 HTTPS 反向代理后，通过域名登录。迁移在应用启动前自动执行，管理员初始化显式执行且不会覆盖已有密码。Nginx 配置示例见 [deploy/nginx/qingwen.conf.example](deploy/nginx/qingwen.conf.example)。
+上述 `&&` 链在任一步失败时停止。应用默认仅绑定 `127.0.0.1:3218`；对外服务配置 HTTPS 反向代理后，通过域名登录。迁移使用独立工具镜像，先执行成功再启动应用；`db:seed` 仅首次初始化管理员，升级时不需要再执行，且不会覆盖已有密码。Nginx 配置示例见 [deploy/nginx/qingwen.conf.example](deploy/nginx/qingwen.conf.example)。
 
-没有现成数据库的新安装，可选择 [compose.prod.yaml](compose.prod.yaml) 与 [.env.docker.example](.env.docker.example)，填写 `POSTGRES_PASSWORD` 和 `ADMIN_PASSWORD` 后，使用 `.env.docker` 执行相同的 `pull`、`up -d --no-build` 与初始化命令；该方案另启 PostgreSQL 17 容器并使用命名卷保存数据。根路径镜像为 `ghcr.io/jojoshine/qingwen:latest`，本机访问 <http://localhost:3218>。当前服务器使用前述外部数据库方案。完整安装、固定版本、升级与备份见 [部署文档](docs/DEPLOYMENT.md)。
+没有现成数据库的新安装，可选择 [compose.prod.yaml](compose.prod.yaml) 与 [.env.docker.example](.env.docker.example)，填写 `POSTGRES_PASSWORD` 和 `ADMIN_PASSWORD` 后，按部署文档依次拉取镜像、启动 `db` 并等健康、运行迁移、初始化管理员、启动 `app`。该方案另启 PostgreSQL 17 容器并使用命名卷保存数据。根路径镜像为 `ghcr.io/jojoshine/qingwen:latest`，本机访问 <http://localhost:3218/login>。完整安装、固定版本、升级与备份见 [部署文档](docs/DEPLOYMENT.md)。
 
 ## 本地开发
 
-需要 Node.js 22.12+、pnpm 10.26.0，以及 PostgreSQL 17。可用 Docker 仅启动数据库。
+需要 Node.js 22.12+、pnpm 10.26.0，以及 PostgreSQL（本地配套容器为 17）。此路径是**本机运行应用、Docker 只运行数据库**，不拉取 GHCR 应用镜像。
 
 ```sh
 git clone https://github.com/JojoShine/qingwen.git
@@ -76,18 +91,20 @@ pnpm install --frozen-lockfile
 cp .env.example .env
 ```
 
-编辑 `.env`，设置至少 8 位的 `ADMIN_PASSWORD`；如使用已有数据库，修改 `DATABASE_URL` 并跳过数据库容器启动。
+编辑 `.env`，设置至少 8 位的 `ADMIN_PASSWORD`；默认 `DATABASE_URL` 已对应本地数据库容器的 `localhost:5436/survey`。如使用已有数据库，修改连接地址并跳过数据库容器启动。没有 `corepack` 时，可用 `npm install --global pnpm@10.26.0` 安装相同版本。
 
 ```sh
 # compose.yaml 仅用于本地开发数据库，与生产配置分开。
-docker compose -p qingwen-survey up -d db
+docker compose -p qingwen-survey -f compose.yaml up -d --wait db
 pnpm db:generate
 pnpm db:migrate
 pnpm db:seed
 pnpm dev
 ```
 
-访问 <http://localhost:3218>。可选执行 `pnpm db:demo` 生成五份标有【示例】的问卷及示例答卷；该命令幂等，不覆盖自行创建的问卷。开发数据库默认密码只供本地使用。
+访问 <http://localhost:3218/login>，使用 `.env` 中配置的管理员账号和密码登录，没有通用默认密码。`db:generate` 生成 Prisma 客户端，`db:migrate` 建表或升级表结构，`db:seed` 创建管理员；`pnpm dev` 不会替你执行这三步。可选执行 `pnpm db:demo` 生成五份标有【示例】的问卷及示例答卷；该命令幂等，不覆盖自行创建的问卷，也不会创建体验用户。开发数据库默认密码只供本地使用。
+
+本地运行正式构建时，先停止开发服务器，再执行 `pnpm build && pnpm start`；源码生产部署及 systemd 步骤见[部署文档](docs/DEPLOYMENT.md#三源码部署)。
 
 ## 使用流程
 
