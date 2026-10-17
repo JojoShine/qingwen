@@ -1,5 +1,5 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, App, Button, Progress, Result, Skeleton } from 'antd';
 import { ArrowRightOutlined, CheckCircleFilled, LockOutlined, ReloadOutlined } from '@ant-design/icons';
 import { api, ApiError, useLoad } from '@/lib/client';
@@ -16,6 +16,7 @@ export function PublicSurveyLoader({ shareId }: { shareId: string }) {
 export default function PublicSurvey({ survey, preview = false }: { survey: SurveyData; preview?: boolean }) {
   const [answers, setAnswers] = useState<Answers>(() => visibleAnswers(survey.content || [], initialAnswers(survey.content || []))), [errors, setErrors] = useState<Record<string,string>>({}), [submitting, setSubmitting] = useState(false), [done, setDone] = useState(false), [failure, setFailure] = useState('');
   const key = useRef<string | null>(null); const { message } = App.useApp();
+  useEffect(() => { if (!preview) document.title = survey.browserTitle?.trim() || survey.title; }, [preview, survey.browserTitle, survey.title]);
   if (survey.status === 'CLOSED' && !preview) return <div className="public-state"><Result icon={<span className="public-end-icon"><LockOutlined/></span>} title="问卷已结束" subTitle={`「${survey.title}」已停止收集，感谢你的关注。`}/><BrandFooter survey={survey}/></div>;
   if (survey.availability && !preview) return <div className="public-state"><Result icon={<span className="public-end-icon"><LockOutlined/></span>} title={survey.availabilityMessage} subTitle={survey.availability === 'NOT_STARTED' && survey.startsAt ? `开始时间：${new Date(survey.startsAt).toLocaleString('zh-CN')}` : '感谢你的关注与参与。'}/><BrandFooter survey={survey}/></div>;
   if (done) return <div className={'public-survey bg-'+survey.background}><div className="success-sheet"><div className="success-check"><CheckCircleFilled/></div><span className="eyebrow">EVERY ANSWER MATTERS</span><h1>提交成功，感谢你的参与</h1><p>你的每一份认真回答，<br/>都在帮助我们更好地了解与改进。</p><div className="success-receipt"><CheckCircleFilled/> 答卷已安全保存</div><span className="success-note">现在可以关闭此页面了</span></div><BrandFooter survey={survey}/></div>;

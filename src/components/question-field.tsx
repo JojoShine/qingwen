@@ -1,11 +1,10 @@
 'use client';
-import { Button, Checkbox, DatePicker, Input, InputNumber, Radio, Rate, Select } from 'antd';
+import { Button, Checkbox, Input, InputNumber, Radio, Rate, Select } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, HolderOutlined } from '@ant-design/icons';
 import { DndContext, PointerSensor, KeyboardSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import dayjs from 'dayjs';
-import type { Answer, Question } from '@/lib/survey';
+import { ratingLabels, type Answer, type Question } from '@/lib/survey';
 function RankingItem({ id, label, index, count, disabled, move }: { id: string; label: string; index: number; count: number; disabled: boolean; move: (from: number, to: number) => void }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id, disabled });
   return <div ref={setNodeRef} className="ranking-item" style={{ transform: CSS.Transform.toString(transform), transition }}><button type="button" className="drag-handle" {...attributes} {...listeners} disabled={disabled} aria-label={`拖动 ${label}`}><HolderOutlined/></button><b>{index + 1}</b><span>{label}</span><Button type="text" size="small" icon={<ArrowUpOutlined/>} disabled={disabled || index === 0} onClick={() => move(index,index-1)} aria-label={`上移 ${label}`}/><Button type="text" size="small" icon={<ArrowDownOutlined/>} disabled={disabled || index === count - 1} onClick={() => move(index,index+1)} aria-label={`下移 ${label}`}/></div>;
@@ -22,8 +21,8 @@ export default function QuestionField({ question: q, answer, onChange, disabled 
     case 'text': return <Input type={q.textFormat === 'email' ? 'email' : q.textFormat === 'phone' ? 'tel' : 'text'} inputMode={q.textFormat === 'phone' ? 'tel' : q.textFormat === 'email' ? 'email' : 'text'} disabled={disabled} aria-label={q.title} value={typeof v === 'string' ? v : ''} placeholder={q.placeholder || '请输入你的回答'} maxLength={q.maxLength} onChange={e => update(e.target.value)}/>;
     case 'textarea': return <Input.TextArea disabled={disabled} aria-label={q.title} rows={4} value={typeof v === 'string' ? v : ''} placeholder={q.placeholder || '写下你的想法…'} maxLength={q.maxLength} showCount onChange={e => update(e.target.value)}/>;
     case 'number': return <InputNumber disabled={disabled} aria-label={q.title} style={{ width: '100%' }} value={typeof v === 'number' ? v : null} placeholder={q.placeholder || '请输入数字'} min={q.min} max={q.max} onChange={value => update(value)}/>;
-    case 'date': return <DatePicker disabled={disabled} aria-label={q.title} style={{ width: '100%' }} value={typeof v === 'string' && dayjs(v).isValid() ? dayjs(v) : null} onChange={value => update(value ? value.format('YYYY-MM-DD') : null)}/>;
-    case 'rating': return <div className="rating-field"><Rate disabled={disabled} value={typeof v === 'number' ? v : 0} onChange={value => update(value || null)}/><div><span>不太满意</span><span>非常满意</span></div></div>;
+    case 'date': return <input type="date" className="survey-date-input" disabled={disabled} aria-label={q.title} value={typeof v === 'string' ? v : ''} onChange={e => update(e.target.value || null)}/>;
+    case 'rating': return <div className="rating-field"><Rate disabled={disabled} tooltips={[...ratingLabels]} value={typeof v === 'number' ? v : 0} onChange={value => update(value || null)}/><div><span>{ratingLabels[0]}</span><span>{ratingLabels[4]}</span></div>{typeof v === 'number' && v > 0 && <p className="rating-selection" aria-live="polite">{ratingLabels[v - 1]}</p>}</div>;
     case 'ranking': {
       const order = Array.isArray(v) && v.length === q.options.length ? v : q.options.map(o => o.id);
       const move = (from: number, to: number) => update(arrayMove(order, from, to));

@@ -1,0 +1,1 @@
+ALTER TABLE "Survey" ADD COLUMN "browserTitle" TEXT NOT NULL DEFAULT '';

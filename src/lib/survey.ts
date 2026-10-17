@@ -7,7 +7,7 @@ export type Option = { id: string; label: string };
 export type Question = { id: string; type: QuestionType; title: string; description: string; required: boolean; options: Option[]; rows: Option[]; other: boolean; otherInputMode?: 'single' | 'multiline'; placeholder: string; min?: number; max?: number; maxLength: number; textFormat?: 'text' | 'phone' | 'email'; exclusiveOptionId?: string | null; showWhen?: { questionId: string; optionId: string } | null };
 export type Answer = { value: string | string[] | number | Record<string, string | string[]> | null; other?: string };
 export type Answers = Record<string, Answer>;
-export type SurveyData = { id: string; title: string; description: string; status: 'DRAFT' | 'ACTIVE' | 'CLOSED'; platform: 'mobile' | 'desktop'; showBranding?: boolean; brandName?: string; brandDescription?: string; startsAt?: string | null; endsAt?: string | null; maxResponses?: number | null; browserLimit?: number | null; ipLimit?: number | null; canLimitIp?: boolean; availability?: 'NOT_STARTED' | 'ENDED' | 'FULL' | 'LIMIT_REACHED'; availabilityMessage?: string; background: string; banner: string; bannerTitle?: string | null; bannerSubtitle?: string | null; bannerImage?: string | null; content: Question[]; publishedAt: string | null; updatedAt: string; createdAt: string; shareId: string; owner?: { name: string; username: string }; _count?: { responses: number } };
+export type SurveyData = { id: string; title: string; browserTitle?: string; description: string; status: 'DRAFT' | 'ACTIVE' | 'CLOSED'; platform: 'mobile' | 'desktop'; showBranding?: boolean; brandName?: string; brandDescription?: string; startsAt?: string | null; endsAt?: string | null; maxResponses?: number | null; browserLimit?: number | null; ipLimit?: number | null; canLimitIp?: boolean; availability?: 'NOT_STARTED' | 'ENDED' | 'FULL' | 'LIMIT_REACHED'; availabilityMessage?: string; background: string; banner: string; bannerTitle?: string | null; bannerSubtitle?: string | null; bannerImage?: string | null; content: Question[]; publishedAt: string | null; updatedAt: string; createdAt: string; shareId: string; owner?: { name: string; username: string }; _count?: { responses: number } };
 export const themes = [{ id: 'none', name: '不使用', color: '#ffffff' }, { id: 'mint', name: '清新薄荷', color: '#e5f3ef' }, { id: 'warm', name: '日落杏色', color: '#fcf0df' }, { id: 'blue', name: '晴空蔚蓝', color: '#e7effa' }, { id: 'ink', name: '简约墨色', color: '#edf0f2' }];
 export const bannerCaptions: Record<string, { title: string; subtitle: string }> = {
   mint: { title: '从你的声音开始', subtitle: 'MAKE ROOM FOR ANSWERS' },
@@ -15,6 +15,7 @@ export const bannerCaptions: Record<string, { title: string; subtitle: string }>
   blue: { title: '好奇，是探索的开始', subtitle: 'A LITTLE CURIOSITY' },
   ink: { title: '好问题，自有回响', subtitle: 'IDEAS START WITH YOU' },
 };
+export const ratingLabels = ['很不满意', '不太满意', '一般', '比较满意', '非常满意'] as const;
 export const choiceTypes: QuestionType[] = ['single', 'multiple', 'select', 'ranking', 'matrixSingle', 'matrixMultiple'];
 export function uid(): string {
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));

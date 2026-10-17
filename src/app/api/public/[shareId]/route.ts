@@ -7,11 +7,11 @@ import { validateAnswers, visibleAnswers, type Answers, type Question } from '@/
 import { withBasePath } from '@/lib/paths';
 type Context = { params: Promise<{ shareId: string }> };
 export function GET(req: Request, ctx: Context) { return handle(req, async () => {
-  const s = await db.survey.findUnique({ where: { shareId: (await ctx.params).shareId }, select: { id: true, title: true, description: true, platform: true, background: true, showBranding: true, brandName: true, brandDescription: true, banner: true, bannerTitle: true, bannerSubtitle: true, status: true, startsAt: true, endsAt: true, maxResponses: true, browserLimit: true, ipLimit: true, content: true, shareId: true } });
+  const s = await db.survey.findUnique({ where: { shareId: (await ctx.params).shareId }, select: { id: true, title: true, browserTitle: true, description: true, platform: true, background: true, showBranding: true, brandName: true, brandDescription: true, banner: true, bannerTitle: true, bannerSubtitle: true, status: true, startsAt: true, endsAt: true, maxResponses: true, browserLimit: true, ipLimit: true, content: true, shareId: true } });
   if (!s || s.status === 'DRAFT') throw new HttpError(404, '问卷不存在或尚未发布');
   const identity = await respondent(req, true);
   const state = await collectionState(db, s, identity);
-  if (state.availability) return { title: s.title, status: s.status, startsAt: s.startsAt, showBranding: s.showBranding, brandName: s.brandName, brandDescription: s.brandDescription, ...state };
+  if (state.availability) return { title: s.title, browserTitle: s.browserTitle, status: s.status, startsAt: s.startsAt, showBranding: s.showBranding, brandName: s.brandName, brandDescription: s.brandDescription, ...state };
   return { ...s, bannerImage: s.banner === 'custom' ? withBasePath(`/api/surveys/${s.id}/banner`) : null };
 }); }
 export function POST(req: Request, ctx: Context) { return handle(req, async () => {

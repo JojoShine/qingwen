@@ -61,6 +61,11 @@ describe.skipIf(!run)('live PostgreSQL API', () => {
     expect((await call(`/surveys/${surveyId}`, 'PATCH', { showBranding: 'false' })).status).toBe(422);
     expect((await (await call(`/surveys/${surveyId}`)).json()).showBranding).toBe(false);
   });
+  it('stores optional browser titles and validates their length', async () => {
+    expect((await call(`/surveys/${surveyId}`, 'PATCH', { browserTitle: '  用户体验反馈  ' })).status).toBe(200);
+    expect((await (await call(`/surveys/${surveyId}`)).json()).browserTitle).toBe('用户体验反馈');
+    expect((await call(`/surveys/${surveyId}`, 'PATCH', { browserTitle: '字'.repeat(101) })).status).toBe(422);
+  });
   it('hides drafts, validates publication and locks the published structure', async () => {
     expect((await call(`/public/${shareId}`, 'GET', undefined, '')).status).toBe(404);
     expect((await call(`/surveys/${surveyId}/action`, 'POST', { action: 'publish' })).status).toBe(422);
@@ -73,6 +78,7 @@ describe.skipIf(!run)('live PostgreSQL API', () => {
   it('serves the saved custom banner on published surveys without embedding image data in listings', async () => {
     expect((await call(`/surveys/${surveyId}`, 'PATCH', { banner: 'custom', background: 'blue' })).status).toBe(200);
     const published = await (await call(`/public/${shareId}`, 'GET', undefined, '')).json();
+    expect(published.browserTitle).toBe('用户体验反馈');
     expect(published.showBranding).toBe(false);
     expect(published.brandName).toBe('知行研究'); expect(published.brandDescription).toBe('你的反馈，让产品更好');
     expect(published.bannerTitle).toBe('欢迎分享你的想法'); expect(published.background).toBe('blue');
@@ -105,6 +111,7 @@ describe.skipIf(!run)('live PostgreSQL API', () => {
     expect(closed.brandName).toBe('知行研究'); expect(closed.brandDescription).toBe('你的反馈，让产品更好');
     expect((await (await call(`/public/${shareId}`, 'GET', undefined, '')).json()).showBranding).toBe(false);
     expect(clone.status).toBe('DRAFT'); expect(clone.shareId).not.toBe(shareId);
+    expect(clone.browserTitle).toBe('用户体验反馈');
     expect(clone.bannerTitle).toBe('欢迎分享你的想法'); expect(clone.bannerImage).toMatch(/^data:image\/png;base64,/);
     expect(await db.response.count({ where: { surveyId: clone.id } })).toBe(0);
   });

@@ -22,6 +22,9 @@ export default function AppearanceSettings({ survey, onChange, onPlatformChange 
     finally { setUploading(false); if (fileInput.current) fileInput.current.value = ''; }
   };
   return <Form layout="vertical" className="appearance-settings">
+    <Form.Item label="浏览器标题"><Input aria-label="浏览器标题" value={survey.browserTitle ?? ''} maxLength={100} placeholder={survey.title || '默认使用问卷标题'} onChange={e => onChange({ browserTitle: e.target.value })}/></Form.Item>
+    <p className="field-hint">扫码打开后的页面标题，留空时使用问卷标题。</p>
+    <Divider/>
     <h4>填写平台</h4>
     <Radio.Group value={survey.platform} onChange={e => { onChange({ platform: e.target.value }); onPlatformChange(e.target.value); }}><Radio value="mobile">移动端</Radio><Radio value="desktop">PC 端</Radio></Radio.Group>
     <p className="field-hint">移动端按手机宽度显示，PC 端使用宽版布局。</p>

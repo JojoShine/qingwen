@@ -44,6 +44,7 @@ model Survey {
   owner User @relation(fields: [ownerId], references: [id])
   shareId String @unique @default(uuid())
   title String @default("未命名问卷")
+  browserTitle String @default("")
   description String @default("")
   status SurveyStatus @default(DRAFT)
   platform String @default("mobile")

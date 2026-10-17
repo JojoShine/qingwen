@@ -37,5 +37,5 @@ const theme: ThemeConfig = {
   },
 };
 export default function Providers({ children }: { children: React.ReactNode }) {
-  return <ConfigProvider locale={zhCN} theme={theme}><App>{children}</App></ConfigProvider>;
+  return <ConfigProvider locale={zhCN} theme={theme} wave={{ disabled: true }}><App>{children}</App></ConfigProvider>;
 }

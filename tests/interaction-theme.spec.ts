@@ -77,8 +77,8 @@ test('all pages keep light interaction surfaces, readable disabled controls and 
     expect.soft(await form.getByRole('textbox',{name:'补充意见',exact:true}).evaluate(el=>getComputedStyle(el).boxShadow)).toBe('none');
     await form.getByRole('combobox',{name:'选择城市',exact:true}).click(); await form.locator('.ant-select-dropdown').getByText('选项 1',{exact:true}).click();
     await form.getByRole('combobox',{name:'选择城市',exact:true}).click(); await lightSurface(form.locator('.ant-select-dropdown:visible .ant-select-item-option-selected')); await capture(form,'mobile-options'); await form.keyboard.press('Escape');
-    await form.getByRole('textbox',{name:'选择日期',exact:true}).click();
-    const today = form.locator('.ant-picker-dropdown:visible .ant-picker-cell-today').first(); await today.hover(); await capture(form,'date-hover'); await form.keyboard.press('Escape');
+    await form.getByLabel('选择日期',{exact:true}).fill('2026-10-17');
+    await expect(form.getByLabel('选择日期',{exact:true})).toHaveValue('2026-10-17'); await capture(form,'date-selected');
     await form.locator('.rating-field .ant-rate-star').nth(3).click(); await capture(form,'mobile-filled');
     expect(await form.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   } finally { await guest.close(); await page.request.delete(`/api/surveys/${survey.id}`); await page.request.delete(`/api/surveys/${draft.id}`); }
