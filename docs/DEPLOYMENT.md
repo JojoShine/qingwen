@@ -28,12 +28,14 @@
 
 ## 一、部署前准备
 
-- Docker 路径：Docker Engine / Docker Desktop、Docker Compose v2、curl；服务器需要访问 GitHub 配置文件、GHCR 和 Docker Hub，无需 Git、Node.js、pnpm 或源码构建环境。当前发布镜像支持 Linux amd64。
+- Docker 路径：Docker Engine / Docker Desktop、Docker Compose v2、curl；服务器需要访问 GitHub 配置文件及选用的镜像仓库，无需 Git、Node.js、pnpm 或源码构建环境。当前发布镜像支持 Linux amd64。
 - 源码路径：Node.js 22.12+（Docker 和 CI 均使用 22）、pnpm 10.26.0、Git 和 PostgreSQL；配套数据库镜像及 CI 使用 PostgreSQL 17，当前正式库已验证为 14.24。
 - 正式对外服务：域名、HTTPS 证书与反向代理。生产会话 Cookie 标记为 Secure，使用普通 HTTP 的远程地址无法正常保持登录。
 - 应用运行资源按问卷规模调整；镜像由 GitHub Actions 构建，生产服务器只拉取和运行镜像。
 
 GHCR 应用与迁移镜像应设置为公开可见，生产服务器可匿名拉取，无需保存 GitHub token。首次发布后，维护者需在 GitHub Packages 中确认两个包的可见性为 Public。
+
+Docker 本身可以拉取 GHCR，不要求业务镜像必须放在 Docker Hub。需要区分：CI 构建会从 Docker Hub 获取 `node:22-bookworm-slim` 基础镜像；使用 `db` 容器的部署会从 Docker Hub 获取 `postgres:17-alpine`；连接已有 PostgreSQL 的服务器只需要拉取已打包的应用与迁移镜像，无须另外下载 Node.js 镜像。下文提供把业务镜像同步发布到 Docker Hub 的配置，作为另一种下载渠道；网络可达性仍需在部署机器实际验证。
 
 ### 安装 Docker 本身
 
@@ -190,7 +192,7 @@ curl -I http://127.0.0.1:3218/surveys/login
 
 ### 4. 发布流程与镜像版本
 
-[CI and GHCR 工作流](../.github/workflows/ci.yml) 在单元测试、接口集成测试、类型检查、生产构建和浏览器测试通过后构建并发布 GHCR 镜像。PR 执行检查，推送到 `main` 或手动触发工作流后发布镜像；服务器只执行 `pull` 和 `up -d --no-build`。应用与迁移工具分别交付：
+[CI 与镜像发布工作流](../.github/workflows/ci.yml) 在单元测试、接口集成测试、类型检查、生产构建和浏览器测试通过后构建并发布 GHCR 镜像；配置 Docker Hub 凭据后，同次构建同时推送到 Hub。PR 执行检查，推送到 `main` 或手动触发工作流后发布镜像；服务器只执行 `pull` 和 `up -d --no-build`。应用与迁移工具分别交付：
 
 当前仓库只有这个工作流：先在临时 PostgreSQL 中初始化并运行源码测试，再并行构建根路径应用、`/surveys` 应用及迁移工具三个镜像产物。Dockerfile 最终目标实际叫 `runner` 和 `migrator`；应用容器端口实际是 `3000`。当前没有 `vX.Y.Z` 标签发布任务、GitHub Release 部署附件或自动 SSH 上线任务；推送 GitHub 不代表服务器已经更新。
 
@@ -207,6 +209,26 @@ curl -I http://127.0.0.1:3218/surveys/login
 生产推荐固定同一提交的不可变标签，记录升级前后的两个镜像引用；不要混用不同提交的应用与迁移工具。密码仅在运行时传入，镜像不包含演示答卷。
 
 下载 Compose 时也应与镜像提交匹配：首次使用 `main` 下载是为了快速安装；固定版本部署时，将下载 URL 中的 `main` 换成通过 CI 的完整提交 SHA，并在环境文件中填写上表同一 SHA 的镜像标签。`latest` 是浮动标签；严格锁定镜像内容时使用 `ghcr.io/...@sha256:<digest>`。
+
+#### Docker Hub 发布配置
+
+Hub 命名空间使用 `jojoshine`。维护者完成以下配置后，在 `main` 推送或手动运行工作流：
+
+1. 在 Docker Hub 准备两个公开仓库：`jojoshine/qingwen`、`jojoshine/qingwen-migrate`；根路径和 `/surveys` 是同一应用仓库的不同标签。
+2. 创建专用于 GitHub 发布、具有 Read & Write 权限的 [Docker Hub 访问令牌](https://docs.docker.com/security/access-tokens/)。
+3. 在 [GitHub Actions Variables](https://github.com/JojoShine/qingwen/settings/variables/actions) 设置仓库变量 `DOCKERHUB_USERNAME=jojoshine`。
+4. 在 [GitHub Actions Secrets](https://github.com/JojoShine/qingwen/settings/secrets/actions) 设置仓库 Secret `DOCKERHUB_TOKEN`，值为访问令牌。不要写进 YAML、环境变量示例或聊天记录。
+
+两项未配齐时，CI 会提示 Hub 发布尚未启用，仅发布 GHCR；这不代表 Hub 上已有镜像。启用后，工作流登录两个仓库，并把同一次构建的产物推送到两边。凭据无效或 Hub 推送失败时，发布任务会失败，应处理后重跑，不把失败的版本视作可部署版本。
+
+| 用途 | Docker Hub 应用镜像 | Docker Hub 迁移镜像 |
+| --- | --- | --- |
+| 根路径 | `docker.io/jojoshine/qingwen:latest` | `docker.io/jojoshine/qingwen-migrate:latest` |
+| `/surveys` | `docker.io/jojoshine/qingwen:latest-surveys` | `docker.io/jojoshine/qingwen-migrate:latest` |
+| 固定提交，根路径 | `docker.io/jojoshine/qingwen:sha-<完整提交哈希>` | `docker.io/jojoshine/qingwen-migrate:sha-<完整提交哈希>` |
+| 固定提交，`/surveys` | `docker.io/jojoshine/qingwen:sha-<完整提交哈希>-surveys` | `docker.io/jojoshine/qingwen-migrate:sha-<完整提交哈希>` |
+
+**首次 Hub 发布任务成功且确认仓库公开后**，已有服务器选择 Hub 时，只需在原环境文件中将 `QINGWEN_IMAGE`、`QINGWEN_MIGRATION_IMAGE` 改为对应 Hub 引用；保留 Compose、数据库连接、端口和 Nginx，再按升级步骤先拉取两个镜像、迁移成功后切换应用。不要把根路径镜像用到 `/surveys` 部署，也不要把两个镜像改成不同提交。Docker Hub 与 GHCR 都可直接用 Docker 拉取，公开仓库的部署机器不需要保存发布用的写入令牌。
 
 当前服务器的实际更新由部署操作单独完成：核验 CI → 解析官方 GHCR 摘要 → 拉取并核验镜像 → 备份数据库和配置 → 执行迁移 → `up --no-deps --no-build --wait app` → 检查线上入口，并在 `/opt/qingwen/release.json` 记录镜像与提交。该服务器曾遇到 GHCR blob 下载受阻，实际使用 `ghcr.nju.edu.cn` 缓存传输，校验官方 manifest/config 摘要和提交标签后再标记为官方镜像引用；这不涉及上传源码或服务器构建，也不应在其他环境未经核验直接替换镜像仓库。
 
@@ -523,6 +545,7 @@ docker compose --env-file .env.docker -f compose.prod.yaml up -d --no-build
 
 - [Docker Engine 安装](https://docs.docker.com/engine/install/)
 - [Docker Desktop 安装](https://docs.docker.com/desktop/)
+- [GitHub Actions 同时推送 Docker Hub 与 GHCR](https://docs.docker.com/build/ci/github-actions/push-multi-registries/)
 - [Docker Compose 启动依赖](https://docs.docker.com/compose/how-tos/startup-order/)
 - [Next.js standalone 输出](https://nextjs.org/docs/app/api-reference/config/next-config-js/output)
 - [Prisma 7 生产迁移](https://www.prisma.io/docs/orm/v7/prisma-client/deployment/deploy-migrations-from-a-local-environment)

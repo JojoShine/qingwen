@@ -1,4 +1,4 @@
-name: CI and GHCR
+name: CI and container images
 
 on:
   push:
@@ -106,22 +106,53 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      - name: Check Docker Hub configuration
+        id: hub
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Docker Hub publication is disabled. Configure DOCKERHUB_USERNAME (variable) and DOCKERHUB_TOKEN (secret) to enable it. GHCR publication remains enabled."
+          fi
+      - name: Log in to Docker Hub
+        if: steps.hub.outputs.enabled == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Compute image name
+      - name: Compute image tags
         id: image
         env:
           OWNER: ${{ github.repository_owner }}
           IMAGE: ${{ matrix.image }}
           VARIANT: ${{ matrix.variant }}
+          HUB_ENABLED: ${{ steps.hub.outputs.enabled }}
+          HUB_NAMESPACE: ${{ vars.DOCKERHUB_USERNAME }}
         run: |
-          echo "name=ghcr.io/${OWNER,,}/${IMAGE}" >> "$GITHUB_OUTPUT"
+          image_suffix=""
           if [ "$VARIANT" = surveys ]; then
-            echo "suffix=-surveys" >> "$GITHUB_OUTPUT"
+            image_suffix="-surveys"
           fi
+          {
+            echo 'tags<<IMAGE_TAGS'
+            echo "ghcr.io/${OWNER,,}/${IMAGE}:latest${image_suffix}"
+            echo "ghcr.io/${OWNER,,}/${IMAGE}:sha-${GITHUB_SHA}${image_suffix}"
+            if [ "$HUB_ENABLED" = true ]; then
+              echo "docker.io/${HUB_NAMESPACE}/${IMAGE}:latest${image_suffix}"
+              echo "docker.io/${HUB_NAMESPACE}/${IMAGE}:sha-${GITHUB_SHA}${image_suffix}"
+            fi
+            echo IMAGE_TAGS
+          } >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -129,9 +160,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: NEXT_PUBLIC_BASE_PATH=${{ matrix.base_path }}
-          tags: |
-            ${{ steps.image.outputs.name }}:latest${{ steps.image.outputs.suffix }}
-            ${{ steps.image.outputs.name }}:sha-${{ github.sha }}${{ steps.image.outputs.suffix }}
+          tags: ${{ steps.image.outputs.tags }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.licenses=MIT

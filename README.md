@@ -35,7 +35,7 @@
 
 ## Docker 快速部署
 
-需要 Docker Engine / Docker Desktop 与 Docker Compose v2。服务器直接拉取 GitHub Actions 发布的 GHCR 公开镜像，无需下载源码或在服务器构建；当前镜像支持 Linux amd64。
+需要 Docker Engine / Docker Desktop 与 Docker Compose v2。服务器直接拉取 GitHub Actions 发布的公开镜像，无需下载源码或在服务器构建；默认使用 GHCR，配置 Docker Hub 发布凭据后也可使用 `docker.io/jojoshine/qingwen` 与 `docker.io/jojoshine/qingwen-migrate`。当前镜像支持 Linux amd64。
 
 Docker 安装见 [Linux Docker Engine](https://docs.docker.com/engine/install/) 或 [Docker Desktop](https://docs.docker.com/desktop/)。安装后先确认 `docker info` 和 `docker compose version` 均成功。Compose 使用 `docker compose` 命令。
 
@@ -49,7 +49,9 @@ Docker 安装见 [Linux Docker Engine](https://docs.docker.com/engine/install/) 
 
 这三个 Compose 文件分别独立使用，不能把 `compose.yaml` 当成全栈容器部署，也不需要合并运行。以下是**已有数据库**方案；在自己电脑从零体验 Docker 版本，使用[全新安装步骤](docs/DEPLOYMENT.md#2-可选新安装时使用-postgresql-容器)。
 
-实际发布链路：**提交 main → GitHub CI 检查与测试 → 构建应用/迁移镜像 → 推送 GHCR → 部署人员在服务器拉取 → 迁移 → 启动应用 → Nginx 提供 HTTPS**。当前工作流不自动 SSH 部署服务器；首次管理员初始化是另外一次显式操作。
+实际发布链路：**提交 main → GitHub CI 检查与测试 → 构建应用/迁移镜像 → 推送 GHCR（配置后同时推送 Docker Hub）→ 部署人员在服务器拉取 → 迁移 → 启动应用 → Nginx 提供 HTTPS**。当前工作流不自动 SSH 部署服务器；首次管理员初始化是另外一次显式操作。
+
+Docker Hub 由仓库 Actions 变量 `DOCKERHUB_USERNAME=jojoshine` 和 Secret `DOCKERHUB_TOKEN` 启用，配置方法与 Hub 镜像标签见[Docker Hub 发布说明](docs/DEPLOYMENT.md#docker-hub-发布配置)。凭据未配齐时，工作流明确提示跳过 Hub，继续发布 GHCR；只有 Hub 首次发布成功后，才能把部署环境中的两个镜像地址切换到 Hub。
 
 已有 PostgreSQL 时使用以下配置。当前 `tbtparent.me` 服务器复用本机原生 PostgreSQL 的 `qingwen` 数据库，不启动数据库容器：
 
