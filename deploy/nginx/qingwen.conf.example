@@ -1,0 +1,19 @@
+# Include this snippet inside the existing HTTPS server block.
+# Use ghcr.io/jojoshine/qingwen:latest-surveys (compiled basePath=/surveys).
+location = /surveys {
+    proxy_pass http://127.0.0.1:3218;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+
+location ^~ /surveys/ {
+    proxy_pass http://127.0.0.1:3218;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_buffering off;
+    client_max_body_size 2m;
+}

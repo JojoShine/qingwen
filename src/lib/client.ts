@@ -1,10 +1,11 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
+import { withBasePath } from '@/lib/paths';
 export class ApiError extends Error { constructor(message: string, public status: number, public fields?: Record<string, string>) { super(message); } }
 export async function api<T = unknown>(url: string, options: RequestInit = {}): Promise<T> {
-  const r = await fetch('/api' + url, { ...options, headers: { 'Content-Type': 'application/json', ...options.headers } });
+  const r = await fetch(withBasePath('/api' + url), { ...options, headers: { 'Content-Type': 'application/json', ...options.headers } });
   const result = await r.json();
-  if (!r.ok) { if (r.status === 401 && !url.startsWith('/auth/login') && !url.startsWith('/public/')) window.location.assign('/login'); throw new ApiError(result.error || '请求失败，请重试', r.status, result.fields); }
+  if (!r.ok) { if (r.status === 401 && !url.startsWith('/auth/login') && !url.startsWith('/public/')) window.location.assign(withBasePath('/login')); throw new ApiError(result.error || '请求失败，请重试', r.status, result.fields); }
   return result as T;
 }
 export function useLoad<T>(url: string) {

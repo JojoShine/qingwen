@@ -2,6 +2,7 @@
 import { useCallback, useEffect } from 'react';
 import { App, Button } from 'antd';
 import { useRouter } from 'next/navigation';
+import { withoutBasePath } from '@/lib/paths';
 
 export function requestLeave(proceed: () => void) {
   if (window.dispatchEvent(new CustomEvent('qingwen:beforeleave', { cancelable: true, detail: { proceed } }))) proceed();
@@ -19,7 +20,7 @@ export function useUnsavedChanges(dirty: boolean, save: () => Promise<boolean>) 
   useEffect(() => {
     if (!dirty) return;
     const currentUrl = window.location.href, editorHistory = window.history.state;
-    const navigate = (url: string) => leave(() => { const destination = new URL(url); router.push(destination.pathname + destination.search + destination.hash); });
+    const navigate = (url: string) => leave(() => { const destination = new URL(url); router.push(withoutBasePath(destination.pathname) + destination.search + destination.hash); });
     const click = (event: MouseEvent) => {
       const anchor = (event.target as Element)?.closest?.('a[href]') as HTMLAnchorElement | null;
       if (!anchor || anchor.hasAttribute('download') || anchor.target === '_blank' || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return;

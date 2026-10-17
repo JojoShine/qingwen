@@ -15,10 +15,7 @@ services:
       retries: 20
 
   migrate:
-    image: ${QINGWEN_MIGRATION_IMAGE:-qingwen-migrate:local}
-    build:
-      context: .
-      target: migrator
+    image: ${QINGWEN_MIGRATION_IMAGE:-ghcr.io/jojoshine/qingwen-migrate:latest}
     restart: "no"
     environment:
       DATABASE_URL: postgresql://survey:${POSTGRES_PASSWORD:?请配置数据库密码}@db:5432/survey?schema=public
@@ -30,10 +27,7 @@ services:
         condition: service_healthy
 
   app:
-    image: ${QINGWEN_IMAGE:-qingwen:local}
-    build:
-      context: .
-      target: runner
+    image: ${QINGWEN_IMAGE:-ghcr.io/jojoshine/qingwen:latest}
     restart: unless-stopped
     init: true
     ports:

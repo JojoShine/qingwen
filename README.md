@@ -35,25 +35,33 @@
 
 ## Docker 快速部署
 
-需要 Docker Engine / Docker Desktop 与 Docker Compose v2。
+需要 Docker Engine / Docker Desktop 与 Docker Compose v2。服务器直接拉取 GitHub Actions 发布的 GHCR 公开镜像，无需下载源码或在服务器构建；当前镜像支持 Linux amd64。
+
+已有 PostgreSQL 时使用以下配置。当前 `tbtparent.me` 服务器复用本机原生 PostgreSQL 的 `qingwen` 数据库，不启动数据库容器：
 
 ```sh
-git clone https://github.com/JojoShine/qingwen.git
-cd qingwen
-cp .env.docker.example .env.docker
+sudo mkdir -p /opt/qingwen
+sudo chown "$(id -u):$(id -g)" /opt/qingwen
+cd /opt/qingwen
+curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/compose.external-db.yaml -o compose.external-db.yaml
+curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/.env.external-db.example -o .env.external-db
+chmod 600 .env.external-db
 ```
 
-编辑 `.env.docker`：填写 `POSTGRES_PASSWORD`、至少 8 位的 `ADMIN_PASSWORD`。`APP_URL` 默认留空，分享链接和二维码自动使用当前浏览器访问地址；需要固定分享域名时再填写。建议用 `openssl rand -hex 24` 生成数据库密码，避免连接 URL 中的特殊字符。
+编辑 `.env.external-db`：填写 `DATABASE_URL` 和至少 8 位的 `ADMIN_PASSWORD`。连接本机数据库使用 `host.docker.internal:5432/qingwen`；配置已通过 `host-gateway` 将该主机名映射到宿主机。为应用使用专用数据库角色，并仅允许实际应用 Docker 子网访问；首次迁移前先备份已有 `qingwen` 库，详见 [部署文档](docs/DEPLOYMENT.md)。
+
+部署到已有域名的 `https://tbtparent.me/surveys` 时，将 `QINGWEN_IMAGE` 设置为 `ghcr.io/jojoshine/qingwen:latest-surveys`，迁移镜像仍为 `ghcr.io/jojoshine/qingwen-migrate:latest`。`APP_URL` 默认留空；需要固定分享域名时填写不带路径的 origin。路径已在镜像构建时写入，不能通过运行时环境变量修改。
 
 ```sh
-docker compose --env-file .env.docker -f compose.prod.yaml up -d --build
-docker compose --env-file .env.docker -f compose.prod.yaml run --rm --no-deps migrate pnpm db:seed
-docker compose --env-file .env.docker -f compose.prod.yaml ps -a
+docker compose --env-file .env.external-db -f compose.external-db.yaml pull
+docker compose --env-file .env.external-db -f compose.external-db.yaml up -d --no-build
+docker compose --env-file .env.external-db -f compose.external-db.yaml run --rm --no-deps migrate pnpm db:seed
+docker compose --env-file .env.external-db -f compose.external-db.yaml ps -a
 ```
 
-本机访问 <http://localhost:3218>，使用配置的管理员账号登录。应用默认仅绑定本机；对外服务请配置 HTTPS 反向代理，并通过该域名访问后台。数据库持久化至命名卷；迁移自动执行，管理员初始化显式执行且不会覆盖已有密码。
+应用默认仅绑定 `127.0.0.1:3218`；对外服务配置 HTTPS 反向代理后，通过域名登录。迁移在应用启动前自动执行，管理员初始化显式执行且不会覆盖已有密码。Nginx 配置示例见 [deploy/nginx/qingwen.conf.example](deploy/nginx/qingwen.conf.example)。
 
-以上命令从源码构建本地镜像，项目尚未提供预发布公共镜像。生产部署、镜像迁移、升级、备份与源码部署详见 [部署文档](docs/DEPLOYMENT.md)。
+没有现成数据库的新安装，可选择 [compose.prod.yaml](compose.prod.yaml) 与 [.env.docker.example](.env.docker.example)，填写 `POSTGRES_PASSWORD` 和 `ADMIN_PASSWORD` 后，使用 `.env.docker` 执行相同的 `pull`、`up -d --no-build` 与初始化命令；该方案另启 PostgreSQL 17 容器并使用命名卷保存数据。根路径镜像为 `ghcr.io/jojoshine/qingwen:latest`，本机访问 <http://localhost:3218>。当前服务器使用前述外部数据库方案。完整安装、固定版本、升级与备份见 [部署文档](docs/DEPLOYMENT.md)。
 
 ## 本地开发
 
@@ -89,7 +97,7 @@ pnpm dev
 4. 保存并预览试填。确认后发布，通过链接或二维码收集答卷。
 5. 在“查看结果”中统计、筛选、查看答卷和导出 CSV，必要时结束或恢复收集。
 
-分享链接默认跟随当前浏览器地址，自动保留 HTTP/HTTPS、域名或 IP 以及端口。手机扫码时，请通过手机可访问的域名或局域网 IP 打开后台再分享；二维码中的 `localhost` 无法从另一台设备访问。需要固定分享地址时可选填 `APP_URL`，优先于自动获取。已有部署若设置过 `APP_URL`，清空或删除并重启应用即可启用自动获取。
+分享链接默认跟随当前浏览器地址，自动保留 HTTP/HTTPS、域名或 IP 以及端口。手机扫码时，请通过手机可访问的域名或局域网 IP 打开后台再分享；二维码中的 `localhost` 无法从另一台设备访问。需要固定分享地址时可选填 `APP_URL`（只填 origin，不带路径），优先于自动获取；`/surveys` 等构建路径前缀会自动附加。已有部署若设置过 `APP_URL`，清空或删除并重启应用即可启用自动获取。
 
 ## 收集规则说明
 
@@ -124,7 +132,9 @@ prisma/               Schema、迁移、管理员初始化与示例数据
 tests/                接口与浏览器验收
 Dockerfile            应用 runner 与迁移 migrator 构建目标
 compose.yaml          本地开发 PostgreSQL
-compose.prod.yaml     生产应用、迁移与 PostgreSQL
+compose.external-db.yaml  GHCR 镜像部署：复用已有 PostgreSQL
+compose.prod.yaml         可选新安装：应用、迁移与 PostgreSQL
+deploy/nginx/         已有域名下 /surveys 的 Nginx 配置示例
 docs/DEPLOYMENT.md    Docker / 源码部署与运维
 ```
 

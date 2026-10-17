@@ -1,4 +1,5 @@
 'use client';
+import { withBasePath } from '@/lib/paths';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Modal } from 'antd';
 import { type SurveyData } from '@/lib/survey';
@@ -33,7 +34,7 @@ function PhonePreview({ survey }: { survey: SurveyData }) {
         <div className="phone-key phone-key-silent" aria-hidden="true"/><div className="phone-key phone-key-volume" aria-hidden="true"/><div className="phone-key phone-key-power" aria-hidden="true"/>
         <div className={`phone-screen ${survey.banner === 'custom' ? 'has-photo-banner' : ''}`}>
           <div className="phone-status-bar" aria-hidden="true"><span>9:41</span><div className="phone-island"/><div className="phone-status-icons"><svg viewBox="0 0 52 16" width="52" height="16"><path d="M1 12h2v3H1zm4-3h2v6H5zm4-3h2v9H9zm4-4h2v13h-2" fill="currentColor"/><path d="M20 6q6-6 12 0m-10 3q4-4 8 0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><circle cx="26" cy="12" r="1.5" fill="currentColor"/><rect x="36" y="3" width="13" height="10" rx="2" fill="none" stroke="currentColor"/><rect x="38" y="5" width="9" height="6" rx="1" fill="currentColor"/><path d="M51 6v4" stroke="currentColor" strokeWidth="1.5"/></svg></div></div>
-          <iframe ref={frame} src="/preview" title="手机问卷预览" onLoad={send}/>
+          <iframe ref={frame} src={withBasePath('/preview')} title="手机问卷预览" onLoad={send}/>
           <div className="phone-home-area" aria-hidden="true"><span/></div>
         </div>
       </div>

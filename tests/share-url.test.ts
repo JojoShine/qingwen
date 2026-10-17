@@ -7,6 +7,7 @@ import { ownedSurvey } from '@/lib/service';
 describe('share URL configuration', () => {
   beforeEach(() => {
     vi.stubEnv('APP_URL', '');
+    vi.stubEnv('NEXT_PUBLIC_BASE_PATH', '');
     vi.mocked(ownedSurvey).mockResolvedValue({ status: 'ACTIVE', shareId: 'published-survey' } as Awaited<ReturnType<typeof ownedSurvey>>);
   });
   afterEach(() => vi.unstubAllEnvs());
@@ -27,5 +28,12 @@ describe('share URL configuration', () => {
     vi.mocked(ownedSurvey).mockResolvedValue({ status: 'DRAFT', shareId: 'draft' } as Awaited<ReturnType<typeof ownedSurvey>>);
     const response = await GET(new Request('http://localhost/api/surveys/id/share'), { params: Promise.resolve({ id: 'id' }) });
     expect(response.status).toBe(409);
+  });
+
+  it.each(['', 'https://tbtparent.me', 'https://tbtparent.me/surveys'])('includes the deployment prefix once when APP_URL is %s', async appUrl => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_PATH', '/surveys');
+    vi.stubEnv('APP_URL', appUrl);
+    const response = await GET(new Request('http://app:3218/surveys/api/surveys/id/share'), { params: Promise.resolve({ id: 'id' }) });
+    expect(await response.json()).toEqual({ url: `${appUrl ? 'https://tbtparent.me' : ''}/surveys/s/published-survey` });
   });
 });
