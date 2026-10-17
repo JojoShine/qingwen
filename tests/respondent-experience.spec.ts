@@ -56,6 +56,12 @@ test('custom browser titles, native dates and contextual answer details work tog
     expect(answers[date.id].value).toBe('2026-10-17');
     expect(answers[rating.id].value).toBe(4);
     await page.goto(`/surveys/${survey.id}/results`);
+    const averageRating = page.getByLabel('平均 4.0 星，比较满意', { exact: true });
+    await expect(averageRating).toBeVisible();
+    await expect(averageRating.locator('.ant-rate-star-full')).toHaveCount(4);
+    const filledStar = averageRating.locator('.ant-rate-star-full .ant-rate-star-second').first();
+    await expect.poll(() => filledStar.evaluate(el => getComputedStyle(el).color)).toBe('rgb(22, 136, 120)');
+    expect(await filledStar.evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(20);
     await page.getByRole('tab', { name: /原始答卷/ }).click();
     await page.getByRole('button', { name: '查看答卷', exact: true }).click();
     const drawer = page.getByRole('dialog', { name: '答卷详情' });

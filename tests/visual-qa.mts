@@ -11,7 +11,7 @@ await page.screenshot({path:'artifacts/login-desktop.png',fullPage:true,caret:'i
 const login=await context.request.post('http://localhost:3218/api/auth/login',{data:{username:process.env.ADMIN_USERNAME,password:process.env.ADMIN_PASSWORD}});
 if(!login.ok())throw new Error('Login failed');
 await page.goto('http://localhost:3218/surveys');
-await page.getByRole('heading',{name:'问卷库'}).waitFor();
+await page.getByRole('heading',{name:'我的问卷',exact:true}).waitFor();
 await page.locator('.survey-card .card-title').first().waitFor();
 await page.screenshot({path:'artifacts/workspace-desktop.png',fullPage:true,caret:'initial'});
 const list=await(await context.request.get('http://localhost:3218/api/surveys')).json();

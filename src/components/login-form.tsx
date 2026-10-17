@@ -1,12 +1,56 @@
 'use client';
 import { withBasePath } from '@/lib/paths';
-import { useState } from 'react';
-import { App, Button, Form, Input } from 'antd';
-import { ArrowRightOutlined, LockOutlined, UserOutlined, CheckCircleFilled, GithubOutlined } from '@ant-design/icons';
+import { useRef, useState } from 'react';
+import { App, Button, Divider, Form, Input, type InputRef } from 'antd';
+import { ArrowRightOutlined, LockOutlined, UserOutlined, GithubOutlined } from '@ant-design/icons';
 import { api } from '@/lib/client';
 import { Brand } from '@/components/shell';
+import styles from './login-form.module.css';
+
 export default function LoginForm({ demo }: { demo: { username: string; password: string } | null }) {
-  const [loading, setLoading] = useState(false); const [form] = Form.useForm(); const { message } = App.useApp();
-  async function submit(values: { username: string; password: string }) { setLoading(true); try { await api('/auth/login', { method: 'POST', body: JSON.stringify(values) }); window.location.assign(withBasePath('/surveys')); } catch(e) { message.error((e as Error).message); } finally { setLoading(false); } }
-  return <div className="login-page"><section className="login-story"><Brand/><div className="login-story-copy"><span className="eyebrow">ASK BETTER. KNOW MORE.</span><h1>每一个好问题，<br/>都值得一个<span>真诚的回答。</span></h1><p>把好奇变成问题，把回答变成洞察。<br/>轻问，让调查变得简单而美好。</p><div className="login-art"><div className="art-sheet"><div className="art-sheet-label">一份好问卷的开始 <span>01 / 03</span></div><h3>你理想中的工作方式是？</h3><div className="art-option selected"><CheckCircleFilled/> 灵活、自主，也充满连接</div><div className="art-option"><i/> 简单、专注，做有意义的事</div><div className="art-progress"><b/></div></div><span className="art-sticker">让好奇心<br/>找到答案 <ArrowRightOutlined rotate={-35}/></span><div className="art-ring"/></div></div><div className="login-story-footer">用心提问，自有回响。 <span>轻问 / QINGWEN</span></div></section><section className="login-panel"><div className="login-mobile-brand"><Brand/></div><div className="login-form"><span className="eyebrow">YOUR RESEARCH STARTS HERE</span><h2>欢迎回到轻问</h2><p>登录工作台，开启新一轮探索。</p><Form form={form} layout="vertical" onFinish={submit} requiredMark={false}><Form.Item name="username" label="账号" rules={[{ required: true, message: '请输入账号' }]}><Input prefix={<UserOutlined/>} placeholder="请输入你的账号" autoComplete="username" size="large" maxLength={40}/></Form.Item><Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}><Input.Password prefix={<LockOutlined/>} placeholder="请输入密码" autoComplete="current-password" size="large" maxLength={128}/></Form.Item><Button type="primary" htmlType="submit" size="large" block loading={loading}>登录工作台 <ArrowRightOutlined/></Button></Form>{demo && <aside className="login-demo" aria-label="体验账号"><div className="login-demo-heading"><strong>体验账号</strong><Button type="link" size="small" onClick={() => form.setFieldsValue(demo)}>填入账号</Button></div><dl><div><dt>账号</dt><dd><code>{demo.username}</code></dd></div><div><dt>密码</dt><dd><code>{demo.password}</code></dd></div></dl><p>公共体验账号，请勿填写真实或敏感信息。</p></aside>}<p className="login-help">还没有账号？请联系你的管理员创建。</p><div className="login-trust"><LockOutlined/> 你的问卷与回答，仅对有权限的人可见</div><div className="login-attribution"><span>Powered by <a className="login-attribution-brand" href="https://tbtparent.me" target="_blank" rel="noopener noreferrer">TBTparent</a></span><span className="login-attribution-divider" aria-hidden="true"/><a href="https://github.com/JojoShine/qingwen" target="_blank" rel="noopener noreferrer" aria-label="GitHub 项目源码" title="GitHub 项目源码"><GithubOutlined/></a></div></div><footer>© {new Date().getFullYear()} 轻问 · 简于形，精于问</footer></section></div>;
+  const [loading, setLoading] = useState(false);
+  const [form] = Form.useForm();
+  const { message } = App.useApp();
+  const passwordInput = useRef<InputRef>(null);
+  async function submit(values: { username: string; password: string }) {
+    setLoading(true);
+    try {
+      await api('/auth/login', { method: 'POST', body: JSON.stringify(values) });
+      window.location.assign(withBasePath('/surveys'));
+    } catch(e) { message.error((e as Error).message); }
+    finally { setLoading(false); }
+  }
+  return <div className={styles.page}>
+    <header className={styles.header}><Brand/></header>
+    <main className={styles.main}>
+      <div className={styles.content}>
+        <div className={styles.intro}>
+          <span className="brand-mark" aria-hidden="true"><i/><i/><i/></span>
+          <h1>登录轻问</h1>
+          <p>从一个好问题开始。</p>
+        </div>
+        <Form form={form} layout="vertical" onFinish={submit} requiredMark={false} className={styles.form}>
+          <Form.Item name="username" label="账号" rules={[{ required: true, message: '请输入账号' }]}>
+            <Input prefix={<UserOutlined/>} placeholder="请输入你的账号" autoComplete="username" size="large" maxLength={40}/>
+          </Form.Item>
+          <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}>
+            <Input.Password ref={passwordInput} prefix={<LockOutlined/>} placeholder="请输入密码" autoComplete="current-password" size="large" maxLength={128}/>
+          </Form.Item>
+          <Button className={styles.submit} type="primary" htmlType="submit" size="large" block loading={loading}>登录工作台 <ArrowRightOutlined/></Button>
+        </Form>
+        {demo && <aside className={styles.demo} aria-label="体验账号">
+          <Divider plain>先体验一下</Divider>
+          <Button className={styles.demoButton} size="large" block onClick={() => { form.setFieldsValue(demo); passwordInput.current?.focus({ cursor: 'end' }); }}>填入体验账号 <ArrowRightOutlined/></Button>
+          <p>公共体验环境，请勿填写敏感信息。</p>
+        </aside>}
+        <p className={styles.help}>账号由管理员创建与维护</p>
+        <div className={styles.attribution}>
+          <span>Powered by <a href="https://tbtparent.me" target="_blank" rel="noopener noreferrer">TBTparent</a></span>
+          <span className={styles.divider} aria-hidden="true"/>
+          <a className={styles.github} href="https://github.com/JojoShine/qingwen" target="_blank" rel="noopener noreferrer" aria-label="GitHub 项目源码" title="GitHub 项目源码"><GithubOutlined/></a>
+        </div>
+      </div>
+    </main>
+    <footer className={styles.footer}>© {new Date().getFullYear()} 轻问</footer>
+  </div>;
 }

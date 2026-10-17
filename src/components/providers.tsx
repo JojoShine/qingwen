@@ -19,7 +19,7 @@ const theme: ThemeConfig = {
     controlItemBgHover: '#f3f8f5', controlItemBgActive: '#edf7f3', controlItemBgActiveHover: '#e3f1eb',
     controlItemBgActiveDisabled: '#eef3f0', colorBgTextHover: '#f3f8f5', colorBgTextActive: '#e3f1eb',
     colorBgContainerDisabled: '#f5f7f6', colorBorderDisabled: '#e1e7e4', colorTextDisabled: '#91a099',
-    borderRadius: 8, colorText: '#273a32', colorTextSecondary: '#6d7972', colorBorder: '#e3e8e2',
+    borderRadius: 8, colorText: '#28332e', colorTextSecondary: '#707a74', colorBorder: '#e1e6e2',
     fontFamily: 'var(--font-sans)', fontWeightStrong: 600,
     fontSize: 15, lineHeight: 1.65, controlHeight: 40,
     boxShadow: 'none', boxShadowSecondary: 'none', boxShadowTertiary: 'none',
@@ -33,7 +33,7 @@ const theme: ThemeConfig = {
     Button: { primaryShadow: 'none', defaultShadow: 'none', dangerShadow: 'none', defaultHoverBg: '#f3f8f5', defaultHoverColor: '#168878', defaultHoverBorderColor: '#bddacf', defaultActiveBg: '#e3f1eb', defaultActiveBorderColor: '#9fc5b8' },
     Segmented: { trackBg: '#f0f4f2', itemHoverBg: '#f3f8f5', itemActiveBg: '#e3f1eb', itemSelectedBg: '#fff', itemSelectedColor: '#168878' },
     Pagination: { itemActiveBg: '#edf7f3', itemActiveBgDisabled: '#f5f7f6' },
-    Modal: { borderRadiusLG: 16 },
+    Modal: { borderRadiusLG: 10 },
     Table: { headerBg: '#f7f9f8', rowHoverBg: '#f3f8f5', rowSelectedBg: '#edf7f3', rowSelectedHoverBg: '#e3f1eb' },
   },
 };
