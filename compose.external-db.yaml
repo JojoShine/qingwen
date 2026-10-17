@@ -1,7 +1,10 @@
 services:
   migrate:
-    image: ${QINGWEN_MIGRATION_IMAGE:-ghcr.io/jojoshine/qingwen-migrate:latest}
+    image: ${QINGWEN_IMAGE:-ghcr.io/jojoshine/qingwen:latest}
+    command: ["pnpm", "db:migrate"]
     restart: "no"
+    healthcheck:
+      disable: true
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:

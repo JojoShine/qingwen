@@ -7,8 +7,8 @@
 | 场景 | 配置文件 | 实际启动内容 | 访问与数据库地址 |
 | --- | --- | --- | --- |
 | 本地源码开发 | `.env`、可选 `compose.yaml` | 本机 `pnpm dev`；Compose 只运行 `db` | 应用 `localhost:3218`；数据库 `localhost:5436/survey` |
-| Docker 全新安装 | `.env.docker`、`compose.prod.yaml` | GHCR 应用、迁移工具、PostgreSQL 三个服务 | 宿主机 `127.0.0.1:3218` → 应用容器 `3000`；数据库 `db:5432/survey` |
-| Docker 复用已有库 | `.env.external-db`、`compose.external-db.yaml` | GHCR 应用及一次性迁移工具；没有 `db` 服务 | 应用端口同上；数据库地址取自 `DATABASE_URL` |
+| Docker 全新安装 | `.env.docker`、`compose.prod.yaml` | 同一业务镜像运行 app/migrate，另启 PostgreSQL | 宿主机 `127.0.0.1:3218` → 应用容器 `3000`；数据库 `db:5432/survey` |
+| Docker 复用已有库 | `.env.external-db`、`compose.external-db.yaml` | 同一业务镜像运行 app/migrate；没有 `db` 服务 | 应用端口同上；数据库地址取自 `DATABASE_URL` |
 
 **当前正式环境**：第三种方案，宿主机数据库为 `qingwen`，应用使用 `/surveys` 构建变体，Nginx 将 `https://tbtparent.me/surveys` 代理至 `127.0.0.1:3218`。部署目录是 `/opt/qingwen`，独立 Nginx 业务文件是 `/etc/nginx/business/tbtparent-me/qingwen.conf`。
 
@@ -33,9 +33,9 @@
 - 正式对外服务：域名、HTTPS 证书与反向代理。生产会话 Cookie 标记为 Secure，使用普通 HTTP 的远程地址无法正常保持登录。
 - 应用运行资源按问卷规模调整；镜像由 GitHub Actions 构建，生产服务器只拉取和运行镜像。
 
-GHCR 应用与迁移镜像应设置为公开可见，生产服务器可匿名拉取，无需保存 GitHub token。首次发布后，维护者需在 GitHub Packages 中确认两个包的可见性为 Public。
+GHCR 的 `qingwen` 镜像包应设置为公开可见，生产服务器可匿名拉取，无需保存 GitHub token。首次发布后，维护者需在 GitHub Packages 中确认包的可见性为 Public。
 
-Docker 本身可以拉取 GHCR，不要求业务镜像必须放在 Docker Hub。需要区分：CI 构建会从 Docker Hub 获取 `node:22-bookworm-slim` 基础镜像；使用 `db` 容器的部署会从 Docker Hub 获取 `postgres:17-alpine`；连接已有 PostgreSQL 的服务器只需要拉取已打包的应用与迁移镜像，无须另外下载 Node.js 镜像。下文提供把业务镜像同步发布到 Docker Hub 的配置，作为另一种下载渠道；网络可达性仍需在部署机器实际验证。
+Docker 本身可以拉取 GHCR，不要求业务镜像必须放在 Docker Hub。需要区分：CI 构建会从 Docker Hub 获取 `node:22-bookworm-slim` 基础镜像；使用 `db` 容器的部署会从 Docker Hub 获取 `postgres:17-alpine`；连接已有 PostgreSQL 的服务器只需要拉取已打包的统一业务镜像，无须另外下载 Node.js 镜像。下文提供把业务镜像同步发布到 Docker Hub 的配置，作为另一种下载渠道；网络可达性仍需在部署机器实际验证。
 
 ### 安装 Docker 本身
 
@@ -72,7 +72,6 @@ chmod 600 .env.external-db
 # 将占位内容替换为应用专用角色与密码；密码中的特殊字符需要 URL 编码。
 DATABASE_URL=postgresql://qingwen_app:替换为数据库密码@host.docker.internal:5432/qingwen?schema=public
 QINGWEN_IMAGE=ghcr.io/jojoshine/qingwen:latest-surveys
-QINGWEN_MIGRATION_IMAGE=ghcr.io/jojoshine/qingwen-migrate:latest
 APP_URL=
 APP_BIND=127.0.0.1
 APP_PORT=3218
@@ -153,7 +152,6 @@ chmod 600 .env.docker
 | `ADMIN_NAME` | 初始管理员显示名称，默认“管理员” |
 | `TRUSTED_CLIENT_IP_HEADER` | 默认空；需要 IP 次数限制时按下文配置可信代理 |
 | `QINGWEN_IMAGE` | 根路径默认 `ghcr.io/jojoshine/qingwen:latest`；部署 `/surveys` 时用 `ghcr.io/jojoshine/qingwen:latest-surveys` |
-| `QINGWEN_MIGRATION_IMAGE` | 默认 `ghcr.io/jojoshine/qingwen-migrate:latest`，与应用使用同一提交版本 |
 
 Compose 自动组装容器内的 `DATABASE_URL`，不使用开发 `.env` 中指向 localhost 的数据库地址。若更换数据库密码，请同步修改数据库角色密码；修改环境变量不会重置已经初始化的数据卷。
 
@@ -161,7 +159,6 @@ Compose 自动组装容器内的 `DATABASE_URL`，不使用开发 `.env` 中指�
 
 ```dotenv
 QINGWEN_IMAGE=ghcr.io/jojoshine/qingwen:latest-surveys
-QINGWEN_MIGRATION_IMAGE=ghcr.io/jojoshine/qingwen-migrate:latest
 APP_URL=
 APP_BIND=127.0.0.1
 APP_PORT=3218
@@ -192,55 +189,57 @@ curl -I http://127.0.0.1:3218/surveys/login
 
 ### 4. 发布流程与镜像版本
 
-[CI 与镜像发布工作流](../.github/workflows/ci.yml) 在单元测试、接口集成测试、类型检查、生产构建和浏览器测试通过后构建并发布 GHCR 镜像；配置 Docker Hub 凭据后，同次构建同时推送到 Hub。PR 执行检查，推送到 `main` 或手动触发工作流后发布镜像；服务器只执行 `pull` 和 `up -d --no-build`。应用与迁移工具分别交付：
+[CI 与镜像发布工作流](../.github/workflows/ci.yml) 先运行源码检查、接口和浏览器测试，再构建统一业务镜像。镜像内包含 Next.js standalone、Prisma CLI、迁移文件和管理员初始化工具，默认以非 root 用户运行 `node server.js`；需要迁移或初始化时覆盖容器命令，不自动随应用启动执行。`prisma` 和 `tsx` 属于镜像所需生产依赖，开发测试依赖在打包时排除。
 
-当前仓库只有这个工作流：先在临时 PostgreSQL 中初始化并运行源码测试，再并行构建根路径应用、`/surveys` 应用及迁移工具三个镜像产物。Dockerfile 最终目标实际叫 `runner` 和 `migrator`；应用容器端口实际是 `3000`。当前没有 `vX.Y.Z` 标签发布任务、GitHub Release 部署附件或自动 SSH 上线任务；推送 GitHub 不代表服务器已经更新。
+Dockerfile 只交付 `runner` 这一个最终镜像目标。根路径与 `/surveys` 因 Next.js 构建前缀不同，仍分别构建两个变体，但使用同一个镜像仓库，不再有迁移专用仓库或标签。应用容器端口保持 `3000`。
 
-- 应用：Next.js standalone 与静态文件，以非 root 用户运行，包含健康检查，不携带管理员密码或迁移 CLI。
-- 迁移工具：Prisma、迁移文件和管理员初始化工具，以非 root 用户运行，默认执行 `pnpm db:migrate`。
+CI 对每个变体使用临时 PostgreSQL，先从本次镜像执行两次迁移、两次初始化，再从同一镜像启动应用，验证原管理员密码未被覆盖及认证后的数据库查询。验证成功才发布该变体到 GHCR；配置 Hub 凭据后同时推送 Hub。PR 执行源码检查，`main` 推送或手动触发后执行镜像验证与发布。当前没有 `vX.Y.Z` 发布任务或自动 SSH 上线任务，推送 GitHub 不代表服务器已经更新。
 
-| 用途 | 应用镜像标签 | 迁移镜像标签 |
-| --- | --- | --- |
-| 根路径，跟随主分支 | `ghcr.io/jojoshine/qingwen:latest` | `ghcr.io/jojoshine/qingwen-migrate:latest` |
-| `/surveys`，跟随主分支 | `ghcr.io/jojoshine/qingwen:latest-surveys` | `ghcr.io/jojoshine/qingwen-migrate:latest` |
-| 根路径，固定提交 | `ghcr.io/jojoshine/qingwen:sha-<完整提交哈希>` | `ghcr.io/jojoshine/qingwen-migrate:sha-<完整提交哈希>` |
-| `/surveys`，固定提交 | `ghcr.io/jojoshine/qingwen:sha-<完整提交哈希>-surveys` | `ghcr.io/jojoshine/qingwen-migrate:sha-<完整提交哈希>` |
+| 用途 | GHCR 统一业务镜像 |
+| --- | --- |
+| 根路径，跟随主分支 | `ghcr.io/jojoshine/qingwen:latest` |
+| `/surveys`，跟随主分支 | `ghcr.io/jojoshine/qingwen:latest-surveys` |
+| 根路径，固定提交 | `ghcr.io/jojoshine/qingwen:sha-<完整提交哈希>` |
+| `/surveys`，固定提交 | `ghcr.io/jojoshine/qingwen:sha-<完整提交哈希>-surveys` |
 
-生产推荐固定同一提交的不可变标签，记录升级前后的两个镜像引用；不要混用不同提交的应用与迁移工具。密码仅在运行时传入，镜像不包含演示答卷。
+环境文件只需设置 `QINGWEN_IMAGE`，Compose 的 `app` 和 `migrate` 均引用它；后者明确覆盖命令为 `["pnpm", "db:migrate"]` 并关闭 HTTP 健康检查。管理员初始化仍为 `run --rm --no-deps -T migrate pnpm db:seed`。管理员密码仅注入初始化所用的一次性服务，不传给应用服务，也不写入镜像。
 
-下载 Compose 时也应与镜像提交匹配：首次使用 `main` 下载是为了快速安装；固定版本部署时，将下载 URL 中的 `main` 换成通过 CI 的完整提交 SHA，并在环境文件中填写上表同一 SHA 的镜像标签。`latest` 是浮动标签；严格锁定镜像内容时使用 `ghcr.io/...@sha256:<digest>`。
+生产推荐固定完整提交标签或 digest，并记录上一个镜像引用。下载 Compose 时也应匹配该提交：固定版本部署时，把下载 URL 中的 `main` 换成通过 CI 的完整提交 SHA。`latest` 是浮动标签；严格锁定镜像内容时使用 `ghcr.io/jojoshine/qingwen@sha256:<digest>`。
 
 #### Docker Hub 发布配置
 
-Hub 命名空间使用 `jojoshine`。维护者完成以下配置后，在 `main` 推送或手动运行工作流：
+只需要一个公开 Hub 仓库：`jojoshine/qingwen`。根路径和 `/surveys` 使用不同标签，应用与迁移使用同一标签。维护者完成以下配置后，在 `main` 推送或手动运行工作流：
 
-1. 在 Docker Hub 准备两个公开仓库：`jojoshine/qingwen`、`jojoshine/qingwen-migrate`；根路径和 `/surveys` 是同一应用仓库的不同标签。
+1. 在 Docker Hub 创建公开仓库 `jojoshine/qingwen`。
 2. 创建专用于 GitHub 发布、具有 Read & Write 权限的 [Docker Hub 访问令牌](https://docs.docker.com/security/access-tokens/)。
 3. 在 [GitHub Actions Variables](https://github.com/JojoShine/qingwen/settings/variables/actions) 设置仓库变量 `DOCKERHUB_USERNAME=jojoshine`。
-4. 在 [GitHub Actions Secrets](https://github.com/JojoShine/qingwen/settings/secrets/actions) 设置仓库 Secret `DOCKERHUB_TOKEN`，值为访问令牌。不要写进 YAML、环境变量示例或聊天记录。
+4. 在 [GitHub Actions Secrets](https://github.com/JojoShine/qingwen/settings/secrets/actions) 设置仓库 Secret `DOCKERHUB_TOKEN`。不要把令牌写进 YAML、环境示例或聊天记录。
 
-两项未配齐时，CI 会提示 Hub 发布尚未启用，仅发布 GHCR；这不代表 Hub 上已有镜像。启用后，工作流登录两个仓库，并把同一次构建的产物推送到两边。凭据无效或 Hub 推送失败时，发布任务会失败，应处理后重跑，不把失败的版本视作可部署版本。
+凭据未配齐时，CI 会提示 Hub 尚未启用，仅发布 GHCR，这不代表 Hub 上已有镜像。启用后，工作流登录 GHCR 和 Hub，将同次构建的产物推送到两边。认证或推送失败时，该发布任务失败，需要处理后重跑。
 
-| 用途 | Docker Hub 应用镜像 | Docker Hub 迁移镜像 |
-| --- | --- | --- |
-| 根路径 | `docker.io/jojoshine/qingwen:latest` | `docker.io/jojoshine/qingwen-migrate:latest` |
-| `/surveys` | `docker.io/jojoshine/qingwen:latest-surveys` | `docker.io/jojoshine/qingwen-migrate:latest` |
-| 固定提交，根路径 | `docker.io/jojoshine/qingwen:sha-<完整提交哈希>` | `docker.io/jojoshine/qingwen-migrate:sha-<完整提交哈希>` |
-| 固定提交，`/surveys` | `docker.io/jojoshine/qingwen:sha-<完整提交哈希>-surveys` | `docker.io/jojoshine/qingwen-migrate:sha-<完整提交哈希>` |
+| 用途 | Docker Hub 统一业务镜像 |
+| --- | --- |
+| 根路径 | `docker.io/jojoshine/qingwen:latest` |
+| `/surveys` | `docker.io/jojoshine/qingwen:latest-surveys` |
+| 固定提交，根路径 | `docker.io/jojoshine/qingwen:sha-<完整提交哈希>` |
+| 固定提交，`/surveys` | `docker.io/jojoshine/qingwen:sha-<完整提交哈希>-surveys` |
 
-**首次 Hub 发布任务成功且确认仓库公开后**，已有服务器选择 Hub 时，只需在原环境文件中将 `QINGWEN_IMAGE`、`QINGWEN_MIGRATION_IMAGE` 改为对应 Hub 引用；保留 Compose、数据库连接、端口和 Nginx，再按升级步骤先拉取两个镜像、迁移成功后切换应用。不要把根路径镜像用到 `/surveys` 部署，也不要把两个镜像改成不同提交。Docker Hub 与 GHCR 都可直接用 Docker 拉取，公开仓库的部署机器不需要保存发布用的写入令牌。
+**首次 Hub 发布成功且确认仓库公开后**，将原环境文件中的 `QINGWEN_IMAGE` 改为对应 Hub 引用，使用匹配版本的 Compose，保留数据库连接、端口和 Nginx，然后按升级步骤拉取、迁移并启动。公开仓库的部署机器不需要保存发布用的写入令牌。
 
-当前服务器的实际更新由部署操作单独完成：核验 CI → 解析官方 GHCR 摘要 → 拉取并核验镜像 → 备份数据库和配置 → 执行迁移 → `up --no-deps --no-build --wait app` → 检查线上入口，并在 `/opt/qingwen/release.json` 记录镜像与提交。该服务器曾遇到 GHCR blob 下载受阻，实际使用 `ghcr.nju.edu.cn` 缓存传输，校验官方 manifest/config 摘要和提交标签后再标记为官方镜像引用；这不涉及上传源码或服务器构建，也不应在其他环境未经核验直接替换镜像仓库。
+#### 从旧的双镜像配置升级
 
-如需修改源码并自行构建，可在开发机或专用构建机执行以下可选流程；标准服务器部署不执行这些命令：
+先备份现有 Compose、环境文件和数据库，再下载与新统一镜像同提交的 Compose。环境文件只保留 `QINGWEN_IMAGE`，删除旧的 `QINGWEN_MIGRATION_IMAGE`。首次切换必须使用统一镜像版本，不要将旧应用镜像配给新的迁移服务：旧应用镜像不含迁移工具。需要回退旧版本时，同时恢复旧 Compose 和环境配置，而不是只切换标签。此文档更新不会自行修改已有服务器。
+
+当前正式服务器的历史更新单独执行并记录在 `/opt/qingwen/release.json`；曾因 GHCR blob 网络受阻使用 `ghcr.nju.edu.cn` 缓存传输，并核验官方 manifest/config 摘要和提交后再标记为官方引用。其他环境仍应按实际网络及可信仓库配置拉取，不上传源码或在服务器构建。
+
+如需自行构建，只在开发机或专用构建机执行一次业务镜像构建：
 
 ```sh
-# 在源码目录执行；省略 --build-arg 则构建根路径应用。
+# 省略 --build-arg 则构建根路径变体；同一结果可运行应用、迁移和初始化。
 docker build --target runner --build-arg NEXT_PUBLIC_BASE_PATH=/surveys -t qingwen:custom-surveys .
-docker build --target migrator -t qingwen-migrate:custom .
 ```
 
-将自定义镜像发布到自己的仓库并设置 `QINGWEN_IMAGE` 与 `QINGWEN_MIGRATION_IMAGE` 后，仍使用拉取部署流程。`.dockerignore` 排除 `.env`、本地依赖、截图、数据库备份与 Git 历史。
+将自定义镜像发布后，只配置 `QINGWEN_IMAGE`。`.dockerignore` 排除环境文件、本地依赖、截图、数据库备份与 Git 历史。不要在 Docker 构建阶段传入正式数据库凭据或执行生产迁移。
 
 ### 5. HTTPS 反向代理
 
@@ -455,7 +454,7 @@ journalctl -u qingwen -n 100 --no-pager
 
 ```sh
 cd /opt/qingwen
-# 在 .env.external-db 中将应用和迁移镜像改为目标提交的配套标签。
+# 在 .env.external-db 中将 QINGWEN_IMAGE 改为目标提交的统一镜像标签。
 docker compose --env-file .env.external-db -f compose.external-db.yaml pull &&
 docker compose --env-file .env.external-db -f compose.external-db.yaml run --rm --no-deps -T migrate </dev/null &&
 docker compose --env-file .env.external-db -f compose.external-db.yaml up -d --no-deps --no-build --wait app

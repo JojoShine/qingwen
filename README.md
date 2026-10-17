@@ -29,13 +29,13 @@
 | 数据层 | PostgreSQL 17、Prisma 7、pg 驱动与版本化数据库迁移 |
 | 校验与认证 | Zod、服务端角色/归属校验、加盐密码哈希、数据库会话与 HttpOnly Cookie |
 | 验证 | Vitest 单元/接口测试、Playwright 浏览器测试 |
-| 部署 | 多阶段 Docker 镜像、Next.js standalone、独立迁移镜像、Docker Compose |
+| 部署 | 多阶段 Docker 镜像、Next.js standalone、统一业务镜像与一次性迁移服务、Docker Compose |
 
 不需要 Redis、对象存储或独立后端服务。普通账号由管理员创建，当前不提供公开注册、多租户、多人协作、复杂跳题、考试计分或答题附件上传。
 
 ## Docker 快速部署
 
-需要 Docker Engine / Docker Desktop 与 Docker Compose v2。服务器直接拉取 GitHub Actions 发布的公开镜像，无需下载源码或在服务器构建；默认使用 GHCR，配置 Docker Hub 发布凭据后也可使用 `docker.io/jojoshine/qingwen` 与 `docker.io/jojoshine/qingwen-migrate`。当前镜像支持 Linux amd64。
+需要 Docker Engine / Docker Desktop 与 Docker Compose v2。服务器直接拉取 GitHub Actions 发布的公开镜像，无需下载源码或在服务器构建；默认使用 GHCR，配置 Docker Hub 发布凭据后也可使用 `docker.io/jojoshine/qingwen`。当前镜像支持 Linux amd64。
 
 Docker 安装见 [Linux Docker Engine](https://docs.docker.com/engine/install/) 或 [Docker Desktop](https://docs.docker.com/desktop/)。安装后先确认 `docker info` 和 `docker compose version` 均成功。Compose 使用 `docker compose` 命令。
 
@@ -49,9 +49,9 @@ Docker 安装见 [Linux Docker Engine](https://docs.docker.com/engine/install/) 
 
 这三个 Compose 文件分别独立使用，不能把 `compose.yaml` 当成全栈容器部署，也不需要合并运行。以下是**已有数据库**方案；在自己电脑从零体验 Docker 版本，使用[全新安装步骤](docs/DEPLOYMENT.md#2-可选新安装时使用-postgresql-容器)。
 
-实际发布链路：**提交 main → GitHub CI 检查与测试 → 构建应用/迁移镜像 → 推送 GHCR（配置后同时推送 Docker Hub）→ 部署人员在服务器拉取 → 迁移 → 启动应用 → Nginx 提供 HTTPS**。当前工作流不自动 SSH 部署服务器；首次管理员初始化是另外一次显式操作。
+实际发布链路：**提交 main → GitHub CI 检查与测试 → 构建包含应用与迁移工具的业务镜像 → 推送 GHCR（配置后同时推送 Docker Hub）→ 部署人员在服务器拉取 → 迁移 → 启动应用 → Nginx 提供 HTTPS**。当前工作流不自动 SSH 部署服务器；首次管理员初始化是另外一次显式操作。
 
-Docker Hub 由仓库 Actions 变量 `DOCKERHUB_USERNAME=jojoshine` 和 Secret `DOCKERHUB_TOKEN` 启用，配置方法与 Hub 镜像标签见[Docker Hub 发布说明](docs/DEPLOYMENT.md#docker-hub-发布配置)。凭据未配齐时，工作流明确提示跳过 Hub，继续发布 GHCR；只有 Hub 首次发布成功后，才能把部署环境中的两个镜像地址切换到 Hub。
+Docker Hub 由仓库 Actions 变量 `DOCKERHUB_USERNAME=jojoshine` 和 Secret `DOCKERHUB_TOKEN` 启用，配置方法与 Hub 镜像标签见[Docker Hub 发布说明](docs/DEPLOYMENT.md#docker-hub-发布配置)。凭据未配齐时，工作流明确提示跳过 Hub，继续发布 GHCR；只有 Hub 首次发布成功后，才能把部署环境中的 `QINGWEN_IMAGE`切换到 Hub。
 
 已有 PostgreSQL 时使用以下配置。当前 `tbtparent.me` 服务器复用本机原生 PostgreSQL 的 `qingwen` 数据库，不启动数据库容器：
 
@@ -66,7 +66,7 @@ chmod 600 .env.external-db
 
 编辑 `.env.external-db`：填写 `DATABASE_URL` 和至少 8 位的 `ADMIN_PASSWORD`。连接本机数据库使用 `host.docker.internal:5432/qingwen`；配置已通过 `host-gateway` 将该主机名映射到宿主机。为应用使用专用数据库角色，并仅允许实际应用 Docker 子网访问；首次迁移前先备份已有 `qingwen` 库，详见 [部署文档](docs/DEPLOYMENT.md)。
 
-部署到已有域名的 `https://tbtparent.me/surveys` 时，将 `QINGWEN_IMAGE` 设置为 `ghcr.io/jojoshine/qingwen:latest-surveys`，迁移镜像仍为 `ghcr.io/jojoshine/qingwen-migrate:latest`。`APP_URL` 默认留空；需要固定分享域名时填写不带路径的 origin。路径已在镜像构建时写入，不能通过运行时环境变量修改。
+部署到已有域名的 `https://tbtparent.me/surveys` 时，将 `QINGWEN_IMAGE` 设置为 `ghcr.io/jojoshine/qingwen:latest-surveys`，应用与迁移服务均使用该镜像。`APP_URL` 默认留空；需要固定分享域名时填写不带路径的 origin。路径已在镜像构建时写入，不能通过运行时环境变量修改。
 
 ```sh
 docker compose --env-file .env.external-db -f compose.external-db.yaml pull &&
@@ -76,7 +76,7 @@ docker compose --env-file .env.external-db -f compose.external-db.yaml up -d --n
 docker compose --env-file .env.external-db -f compose.external-db.yaml ps -a
 ```
 
-上述 `&&` 链在任一步失败时停止。应用默认仅绑定 `127.0.0.1:3218`；对外服务配置 HTTPS 反向代理后，通过域名登录。迁移使用独立工具镜像，先执行成功再启动应用；`db:seed` 仅首次初始化管理员，升级时不需要再执行，且不会覆盖已有密码。Nginx 配置示例见 [deploy/nginx/qingwen.conf.example](deploy/nginx/qingwen.conf.example)。
+上述 `&&` 链在任一步失败时停止。应用默认仅绑定 `127.0.0.1:3218`；对外服务配置 HTTPS 反向代理后，通过域名登录。`migrate` 使用同一镜像执行 `pnpm db:migrate`，成功后再启动 `app`；`db:seed` 仅首次初始化管理员，升级时不需要再执行，且不会覆盖已有密码。Nginx 配置示例见 [deploy/nginx/qingwen.conf.example](deploy/nginx/qingwen.conf.example)。
 
 没有现成数据库的新安装，可选择 [compose.prod.yaml](compose.prod.yaml) 与 [.env.docker.example](.env.docker.example)，填写 `POSTGRES_PASSWORD` 和 `ADMIN_PASSWORD` 后，按部署文档依次拉取镜像、启动 `db` 并等健康、运行迁移、初始化管理员、启动 `app`。该方案另启 PostgreSQL 17 容器并使用命名卷保存数据。根路径镜像为 `ghcr.io/jojoshine/qingwen:latest`，本机访问 <http://localhost:3218/login>。完整安装、固定版本、升级与备份见 [部署文档](docs/DEPLOYMENT.md)。
 
@@ -149,7 +149,7 @@ src/components/       问卷库、编辑器、共享题型、填写页与结果�
 src/lib/              题型校验、权限、会话、统计与数据库访问
 prisma/               Schema、迁移、管理员初始化与示例数据
 tests/                接口与浏览器验收
-Dockerfile            应用 runner 与迁移 migrator 构建目标
+Dockerfile            包含应用、迁移与管理员初始化的统一 runner 镜像
 compose.yaml          本地开发 PostgreSQL
 compose.external-db.yaml  GHCR 镜像部署：复用已有 PostgreSQL
 compose.prod.yaml         可选新安装：应用、迁移与 PostgreSQL

@@ -15,8 +15,11 @@ services:
       retries: 20
 
   migrate:
-    image: ${QINGWEN_MIGRATION_IMAGE:-ghcr.io/jojoshine/qingwen-migrate:latest}
+    image: ${QINGWEN_IMAGE:-ghcr.io/jojoshine/qingwen:latest}
+    command: ["pnpm", "db:migrate"]
     restart: "no"
+    healthcheck:
+      disable: true
     environment:
       DATABASE_URL: postgresql://survey:${POSTGRES_PASSWORD:?请配置数据库密码}@db:5432/survey?schema=public
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}

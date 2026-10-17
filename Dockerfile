@@ -12,23 +12,23 @@ COPY prisma ./prisma
 COPY prisma.config.ts ./
 RUN pnpm db:generate
 
-# Separate tooling image: run migrations and explicit administrator initialization.
-FROM dependencies AS migrator
-COPY --chown=node:node src/lib/db.ts src/lib/password.ts ./src/lib/
-USER node
-CMD ["pnpm", "db:migrate"]
-
 FROM dependencies AS builder
 COPY . .
 ARG NEXT_PUBLIC_BASE_PATH=
 ENV BUILD_STANDALONE=1 NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH}
 RUN pnpm build
 
-# No Prisma CLI, package manager, source tree or build credentials in the app image.
-FROM node:22-bookworm-slim AS runner
-WORKDIR /app
+FROM dependencies AS production-dependencies
+RUN pnpm prune --prod
+
+# One image runs the app by default, or explicit migration/initialization commands.
+FROM base AS runner
 ARG NEXT_PUBLIC_BASE_PATH=
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000 NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH}
+COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
+COPY --from=dependencies --chown=node:node /app/prisma ./prisma
+COPY --from=dependencies --chown=node:node /app/prisma.config.ts ./prisma.config.ts
+COPY --chown=node:node src/lib/db.ts src/lib/password.ts ./src/lib/
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --chown=node:node LICENSE ./LICENSE
