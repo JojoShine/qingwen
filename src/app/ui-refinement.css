@@ -1,0 +1,160 @@
+/* Shared typography and quiet, flat surfaces across the existing workspace. */
+:root{
+  --font-sans:var(--font-geist),"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;
+  --ink:#273a32;
+  --muted:#748078;
+  --border:#e3e8e2;
+  --surface:#f7f8f6;
+}
+html,body{font-family:var(--font-sans);text-rendering:optimizeLegibility}
+body{font-size:15px;line-height:1.65}
+button,input,textarea,select{font-family:inherit}
+h1,h2,h3,h4{font-synthesis:none;text-wrap:pretty}
+.eyebrow{font-size:11px;font-weight:500;letter-spacing:.16em;color:#7b8880}
+.brand{font-weight:600;letter-spacing:-.04em}
+.brand-en{font-size:9px;letter-spacing:.18em;font-weight:500}
+.topbar-left,.user-menu{font-size:13px}
+.workspace-label{font-size:12px;letter-spacing:.04em;color:#87958b}
+.workspace-label>span{font-size:11px}
+.side-nav{gap:6px}
+.side-nav>a{font-size:14px;font-weight:450;border-radius:7px;color:#6d7c72}
+.side-nav>a.active{font-weight:550}
+.side-nav .anticon{font-size:17px}
+.page-heading{margin-bottom:32px}
+.page-heading h1{font-size:32px;line-height:1.3;font-weight:550;letter-spacing:-.035em;margin:12px 0}
+.page-heading p{font-size:14px;line-height:1.75;color:#748078}
+.page-heading>.ant-btn{height:42px;box-shadow:none;font-size:14px;font-weight:500}
+.collection-heading h2{font-size:17px;font-weight:550;letter-spacing:-.015em}
+.collection-heading>span{color:#879189;font-size:12px}
+.filter-tabs button{font-size:13px;padding:9px 13px}
+.filter-tabs button.active{font-weight:550}
+.survey-search{font-size:13px}
+
+/* One calm statistics band, with tabular figures instead of decorative cards. */
+.stats-grid{gap:0;padding:24px 0;border:1px solid var(--border);border-radius:10px;background:#fff;overflow:hidden}
+.stat-box{border:0;border-right:1px solid var(--border);border-radius:0;background:transparent;padding:2px 24px 27px;min-height:100px;gap:14px}
+.stat-box:last-child{border-right:0}
+.stats-grid .stat-icon,.results-stats .stat-icon{width:36px;height:36px;border-radius:8px;background:#f1f5f1;color:#789481;font-size:18px}
+.stat-info>span{font-size:13px;line-height:1.5;margin:0 0 9px;color:#6d7b71}
+.stat-info strong{font-size:36px;font-weight:500;letter-spacing:-.045em;line-height:1.1;font-variant-numeric:tabular-nums}
+.stat-info small{font-size:12px;font-weight:400;color:#99a49b;margin-left:8px;letter-spacing:0}
+.stat-note{left:24px;bottom:0;font-size:11px;letter-spacing:.01em;color:#8b978e}
+
+.survey-card{border-color:var(--border);border-radius:10px;box-shadow:none;transition:border-color .2s cubic-bezier(.22,1,.36,1)}
+.survey-card:hover{transform:none;box-shadow:none;border-color:#bbd0c2}
+.survey-card-body{padding:22px}
+.card-title{font-size:17px;font-weight:550;letter-spacing:-.02em;line-height:1.6;color:#2c4436}
+.card-description{font-size:13px;line-height:1.8;color:#7c8a80;margin:8px 0 22px}
+.card-meta{font-size:12px;color:#7d8a80}
+.card-status .ant-tag{font-size:11px;font-weight:450;line-height:20px}
+.card-footer{padding:14px 18px;gap:18px;font-size:13px;border-top-color:#edf0eb}
+.card-footer>a{font-weight:450}
+.create-card{border-radius:10px;background:#f5f7f2}
+.create-card>strong{font-weight:500}
+.page-footer,.list-pagination{font-size:12px}
+.ant-btn,.ant-modal-content,.ant-drawer-content{box-shadow:none}
+
+/* Keep the existing three-pane editor proportions and mobile preview geometry. */
+.editor-top-title strong{font-size:16px;font-weight:550;letter-spacing:-.02em}
+.editor-top-actions .ant-btn{font-size:13px;font-weight:500;box-shadow:none}
+.panel-heading>span{font-size:14px;font-weight:550;letter-spacing:-.01em}
+.panel-heading>small{font-size:12px;color:#819085}
+.toolbox-group-label{font-size:11px;letter-spacing:.06em;color:#829186}
+.question-type-grid>button{font-size:13px;border-color:#e5eae3;border-radius:7px}
+.question-type-grid .type-glyph{color:#739480}
+.canvas-toolbar{font-size:12px}
+.editor-device,.editor-paper,.editor-block.dragging{box-shadow:none}
+.editor-block{transition:border-color .2s cubic-bezier(.22,1,.36,1)}
+.block-topline>div>span{font-size:11px;color:#8b9a8f}
+.block-content h3{font-weight:550;letter-spacing:-.01em}
+.properties-panel .ant-tabs-tab{font-size:14px}
+.properties-panel .ant-form-item-label>label{font-size:13px;font-weight:500;color:#536b5b}
+.properties-panel h4{font-weight:550;letter-spacing:-.01em}
+.properties-panel .field-hint{font-size:12px;line-height:1.8;color:#829085}
+.survey-title-editor>input.ant-input{font-weight:550;letter-spacing:-.025em}
+
+.results-stats strong,.numeric-summary strong{font-weight:500;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.results-stats>div>div>span{color:#77857a;font-size:12px}
+.summary-card{border-color:var(--border);border-radius:10px;padding:26px 28px}
+.summary-card h3{font-weight:550;font-size:16px;letter-spacing:-.01em}
+.summary-number,.response-number,.mono-text{font-variant-numeric:tabular-nums}
+.summary-card>header>span{color:#859488}
+.settings-card{border-color:var(--border);border-radius:10px;padding:30px}
+.settings-card h2{font-size:17px;font-weight:550;letter-spacing:-.02em}
+.profile-summary h3{font-size:20px;font-weight:550;letter-spacing:-.02em}
+.ant-table-wrapper .ant-table-thead>tr>th{font-size:12px;font-weight:550;color:#64756a;background:#f7f9f6}
+.ant-table-wrapper .ant-table-tbody>tr>td{font-size:14px}
+.public-intro h1{font-weight:550;letter-spacing:-.035em}
+.public-question-title h2,.response-question h4{font-weight:550;letter-spacing:-.015em}
+.public-submit .ant-btn{box-shadow:none;font-weight:500}
+
+/* A typographic split on the login page; illustrations stay flat and composed. */
+.login-story{background:#f0f4ed}
+.login-story-copy{max-width:560px;margin-top:80px}
+.login-story-copy>.eyebrow{font-size:11px;letter-spacing:.16em;color:#7b917e;font-weight:500}
+.login-story-copy h1{font-size:clamp(30px,3.1vw,44px);line-height:1.5;font-weight:550;letter-spacing:-.035em;color:#2d4836;margin:24px 0}
+.login-story-copy h1>span{color:#65876b}
+.login-story-copy>p{font-size:15px;line-height:1.9;color:#7c927e}
+.login-art{margin-top:48px;max-width:390px;padding-bottom:30px}
+.art-sheet{transform:none;box-shadow:none;background:#fff;border-color:#dde6d8;border-radius:8px;padding:26px}
+.art-sheet-label{font-size:11px;color:#8c9e86;letter-spacing:.02em}
+.art-sheet h3{font-size:17px;font-weight:500;letter-spacing:-.02em;color:#496244}
+.art-option{font-size:13px;border-radius:6px;color:#899a80}
+.art-sticker{right:-22px;bottom:8px;width:100px;height:88px;border:1px solid #d8e2d1;border-radius:8px;background:#f4f6ee;color:#86956e;box-shadow:none;transform:none;font-size:12px;line-height:1.7}
+.art-sticker>.anticon{font-size:18px;margin-top:6px}
+.art-ring{display:none}
+.login-story-footer{font-size:11px;color:#91a28a;letter-spacing:.02em}
+.login-form{max-width:400px}
+.login-form>.eyebrow{font-size:10px;font-weight:500;letter-spacing:.17em;color:#849187;margin-bottom:20px}
+.login-form h2{font-size:34px;font-weight:550;letter-spacing:-.04em;line-height:1.3;margin-bottom:14px}
+.login-form>p{font-size:15px;color:#7a877d;line-height:1.8;margin-bottom:36px}
+.login-form .ant-form-item-label>label{font-size:13px;font-weight:500;color:#536a5b}
+.login-form .ant-input-affix-wrapper{height:48px;background:#fff;border-radius:8px}
+.login-form .ant-input{font-size:15px}
+.login-form .ant-btn{height:48px;font-size:14px;font-weight:500;letter-spacing:.02em;box-shadow:none}
+.login-form>p.login-help{font-size:12px;color:#99a59a;margin:24px 0 32px}
+.login-trust{font-size:11px;color:#a0ada1;padding-top:22px}
+.login-demo{border-color:#e3ebe2;border-radius:8px;background:#f8faf6}
+.login-demo-heading strong{font-size:13px;font-weight:500}
+.login-demo dt{font-size:12px}
+.login-attribution{font-size:12px;gap:12px;margin-top:18px;color:#99a39c}
+.login-attribution .login-attribution-brand{color:inherit;font-weight:500}
+.login-attribution .login-attribution-brand:hover{color:var(--primary)}
+.login-panel>footer{font-size:11px;color:#a8b4a8}
+
+@media(max-width:1250px){
+  .stat-box{padding-left:18px;padding-right:18px;gap:10px}
+  .stat-note{left:18px}
+  .card-footer{gap:14px}
+  .login-story-copy{margin-top:70px}
+  .login-art{max-width:330px}
+}
+@media(max-width:1050px){
+  .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr));padding:8px 0}
+  .stat-box{min-height:116px;padding:16px 20px 32px}
+  .stat-box:nth-child(2){border-right:0}
+  .stat-box:nth-child(n+3){border-top:1px solid var(--border)}
+  .stat-note{left:20px;bottom:12px}
+  .login-story-copy{margin-top:56px}
+  .login-story-copy h1{font-size:30px}
+}
+@media(max-width:700px){
+  .page-heading{margin-bottom:26px}
+  .page-heading h1{font-size:28px;line-height:1.35;margin:10px 0}
+  .page-heading p{font-size:13px}
+  .page-heading>.ant-btn{font-size:13px;height:38px;padding:0 14px}
+  .stat-box{padding-left:16px;padding-right:16px;gap:10px}
+  .stat-info strong{font-size:32px}
+  .stat-info>span{font-size:12px}
+  .stat-note{left:16px;font-size:10px}
+  .stats-grid .stat-icon{width:32px;height:32px;font-size:16px}
+  .collection-heading h2{font-size:16px}
+  .card-title{font-size:17px}
+  .survey-card-body{padding:20px}
+  .summary-card,.settings-card{padding:22px 20px}
+  .summary-card h3{font-size:15px}
+  .login-form{max-width:360px}
+  .login-form h2{font-size:30px}
+  .login-form .ant-input{font-size:16px}
+}
+@media(max-width:359px){.card-footer{gap:10px;padding-left:14px;padding-right:14px}}
