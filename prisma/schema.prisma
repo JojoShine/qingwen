@@ -53,6 +53,7 @@ model Survey {
   bannerTitle String?
   bannerSubtitle String?
   bannerImage String? @db.Text
+  qrLogoImage String? @db.Text
   showBranding Boolean @default(true)
   brandName String @default("轻问.")
   brandDescription String @default("提供支持，让每一份回答都有价值")

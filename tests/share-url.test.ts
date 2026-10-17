@@ -15,13 +15,13 @@ describe('share URL configuration', () => {
   it.each(['http://localhost:3218', 'http://192.0.2.10:8080', 'https://survey.example.com', 'http://[::1]:3218'])('leaves the origin to the browser when accessed through %s', async origin => {
     const response = await GET(new Request(`${origin}/api/surveys/id/share`), { params: Promise.resolve({ id: 'id' }) });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ url: '/s/published-survey' });
+    expect(await response.json()).toEqual({ url: '/s/published-survey', qrLogoImage: null });
   });
 
   it('uses an explicit public origin instead of the internal request address', async () => {
     vi.stubEnv('APP_URL', 'https://forms.example.com:8443');
     const response = await GET(new Request('http://app:3000/api/surveys/id/share'), { params: Promise.resolve({ id: 'id' }) });
-    expect(await response.json()).toEqual({ url: 'https://forms.example.com:8443/s/published-survey' });
+    expect(await response.json()).toEqual({ url: 'https://forms.example.com:8443/s/published-survey', qrLogoImage: null });
   });
 
   it('still refuses to share drafts', async () => {
@@ -34,6 +34,6 @@ describe('share URL configuration', () => {
     vi.stubEnv('NEXT_PUBLIC_BASE_PATH', '/surveys');
     vi.stubEnv('APP_URL', appUrl);
     const response = await GET(new Request('http://app:3218/surveys/api/surveys/id/share'), { params: Promise.resolve({ id: 'id' }) });
-    expect(await response.json()).toEqual({ url: `${appUrl ? 'https://tbtparent.me' : ''}/surveys/s/published-survey` });
+    expect(await response.json()).toEqual({ url: `${appUrl ? 'https://tbtparent.me' : ''}/surveys/s/published-survey`, qrLogoImage: null });
   });
 });

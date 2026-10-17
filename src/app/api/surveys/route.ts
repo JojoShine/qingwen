@@ -10,7 +10,7 @@ export function GET(req: Request) { return handle(req, async () => {
   const owned = actor.role === 'ADMIN' ? {} : { ownerId: actor.id };
   const where: Prisma.SurveyWhereInput = { ...owned, ...(search ? { title: { contains: search, mode: 'insensitive' } } : {}), ...(['DRAFT','ACTIVE','CLOSED'].includes(status || '') ? { status: status as 'DRAFT' | 'ACTIVE' | 'CLOSED' } : {}) };
   const [items, total, allCount, activeCount, draftCount, responses] = await db.$transaction([
-    db.survey.findMany({ where, omit: { content: true, bannerImage: true }, include: { owner: { select: { name: true, username: true } }, _count: { select: { responses: true } } }, orderBy: { updatedAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
+    db.survey.findMany({ where, omit: { content: true, bannerImage: true, qrLogoImage: true }, include: { owner: { select: { name: true, username: true } }, _count: { select: { responses: true } } }, orderBy: { updatedAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
     db.survey.count({ where }), db.survey.count({ where: owned }), db.survey.count({ where: { ...owned, status: 'ACTIVE' } }), db.survey.count({ where: { ...owned, status: 'DRAFT' } }), db.response.count({ where: { survey: owned } }),
   ]);
   return { items: items.map(s => ({ ...s, bannerImage: s.banner === 'custom' ? withBasePath(`/api/surveys/${s.id}/banner`) : null })), total, pageSize, stats: { total: allCount, active: activeCount, draft: draftCount, responses } };

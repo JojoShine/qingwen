@@ -15,7 +15,7 @@ test('share dialog resolves the browser origin and honors the optional configure
     await expect(page.locator('.qr-box canvas')).toBeVisible();
     if (!process.env.APP_URL) {
       const api = await page.request.get(`/api/surveys/${survey.id}/share`);
-      expect(await api.json()).toEqual({ url: `/s/${survey.shareId}` });
+      expect(await api.json()).toEqual({ url: `/s/${survey.shareId}`, qrLogoImage: null });
     }
   } finally { await page.request.delete(`/api/surveys/${survey.id}`); }
 });
