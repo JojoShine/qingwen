@@ -509,23 +509,27 @@ docker build --target runner --build-arg NEXT_PUBLIC_BASE_PATH=/surveys -t qingw
 
 ## 附录：当前正式环境
 
-以下状态于 **2026-10-18 00:39（Asia/Shanghai）** 完成切换，并通过实际容器和发布记录核对：
+正式环境于 **2026-10-18 00:39（Asia/Shanghai）** 切换到内置 PostgreSQL，并于 **2026-10-18 01:05（Asia/Shanghai）** 将同版本镜像地址切换为 GHCR。以下配置已通过实际容器和 `/opt/qingwen/release.json` 核对：
 
 | 项目 | 当前实际配置 |
 | --- | --- |
 | 入口 | `https://tbtparent.me/surveys/login` |
 | 部署目录与文件 | `/opt/qingwen`；`compose.prod.yaml`、`.env.docker` |
 | Compose 项目 / 服务 / 容器 | `qingwen` / `app` / `qingwen-app-1`，仅一个业务容器 |
-| 固定镜像 | `docker.io/jojoshine/qingwen:sha-56260bca01fa839109d75e4e539170b6eeb1ce61-surveys` |
+| 当前应用版本 | 提交 `56260bca01fa839109d75e4e539170b6eeb1ce61`，`/surveys` 变体；切换镜像源未升级应用 |
+| 实际运行镜像 | `ghcr.io/jojoshine/qingwen:sha-56260bca01fa839109d75e4e539170b6eeb1ce61-surveys` |
 | 数据库 | 容器内 PostgreSQL 17.11，库名及角色均为 `survey`；未配置外部 `DATABASE_URL` |
 | 数据卷 | `qingwen_qingwen_data` → `/var/lib/postgresql/data` |
 | 应用端口 | 宿主机 `127.0.0.1:3218` → 容器 `3000`；数据库端口不向宿主机发布 |
 | 独立 Nginx 配置 | `/etc/nginx/business/tbtparent-me/qingwen.conf`，沿用原 `/surveys` 代理和证书 |
 | 发布记录 | `/opt/qingwen/release.json`，记录镜像摘要、版本、数据卷、备份和验证结果 |
+| 最近切换备份 | `/opt/qingwen/backups/20261017T170503Z-ghcr-registry-switch/` |
 
 原宿主机 PostgreSQL 14.24 的 `qingwen` 库已迁入内置数据库，全部表的行数和内容摘要一致；原账号密码、问卷及答卷保留。旧库和旧部署配置继续留作回退依据，不再承担当前应用读写。旧 `.env.external-db` 与 `compose.external-db.yaml` 不用于日常启动、升级或备份。
 
-本次切换备份目录为 `/opt/qingwen/backups/20261017T163140Z-56260bc-embedded/`。目录时间戳使用 UTC，与上述北京时间相差 8 小时。其中：
+最近一次 GHCR 地址切换前的备份位于 `/opt/qingwen/backups/20261017T170503Z-ghcr-registry-switch/`，包含 `qingwen.dump`、`qingwen.dump.sha256`、切换前的 `.env.docker`、`compose.prod.yaml`、`release.json`、`image-reference.txt` 和业务表校验记录。该目录中的镜像引用为切换前的同版本 Docker Hub 地址，用于回退核对。
+
+首次迁移到内置 PostgreSQL 的历史备份仍保留在 `/opt/qingwen/backups/20261017T163140Z-56260bc-embedded/`。目录时间戳使用 UTC，与北京时间相差 8 小时。其中：
 
 - `qingwen-final.dump`：停写后的最终数据库归档；已完成试恢复和逐表校验。
 - `.env.external-db`、`compose.external-db.yaml`、`release.json`：切换前配置与发布记录。
@@ -534,18 +538,22 @@ docker build --target runner --build-arg NEXT_PUBLIC_BASE_PATH=/surveys -t qingw
 
 日常新增备份按[备份](#备份)步骤执行，文件名为 `qingwen.dump`、`.env.docker` 和 `compose.prod.yaml`；不要与首次迁移备份的命名混淆。备份和环境文件含业务数据或凭据，仅保存于受限目录，不提交到仓库。
 
-### 本次镜像传输与后续发布
+### 当前 GHCR 镜像与历史传输记录
 
-上述正式环境切换时使用 Docker Hub 固定引用。当前仓库的新安装默认源已改为 GHCR，本次文档与配置调整未更改服务器的实际镜像引用。此次服务器直连 Docker Hub 超时，经确认通过 GHCR 副本及 `ghcr.nju.edu.cn` 缓存传输；传输前后核对了镜像索引、平台 manifest、配置摘要和提交标签，与 Docker Hub 发布版本一致。正式环境仍使用上表的 Docker Hub 固定标签，没有在服务器上传源码或构建镜像。
+最近一次切换已从官方 `ghcr.io` 成功拉取上表中的固定版本，核对镜像索引摘要及镜像配置 Id 与原运行镜像完全一致，再重建应用容器。当前 `.env.docker` 的 `QINGWEN_IMAGE` 和运行容器均使用该 GHCR 地址，未使用 `latest`，应用版本、内置 PostgreSQL 数据卷、端口和 `/surveys` 路径保持不变，Nginx 未改动。
 
-本次核验值为：
+切换后容器健康，用户、问卷、答卷及数据库迁移记录的数量和内容摘要与切换前一致；已验证 HTTPS 登录页、静态资源、管理员登录、问卷与结果页及公开填写页，服务器外部访问登录页返回 HTTP 200。
+
+首次迁移到内置 PostgreSQL 时曾因 Docker Hub 直连超时，经确认通过 GHCR 副本及 `ghcr.nju.edu.cn` 缓存传输，并核对官方镜像摘要。这仅是首次迁移的历史传输方式；当前正式环境使用官方 GHCR 地址，没有在服务器上传源码或构建镜像。
+
+当前固定版本的核验值为：
 
 ```text
 Docker Hub / GHCR 镜像索引：sha256:a4e409b7d8ac53b76abb15e75ea612f090f779a51fd76b517f51605d98854042
 linux/amd64 镜像配置（docker image inspect 的 Id）：sha256:779f5e2940b9f17d86c56f4e915d3f1340a302cd9321b1f9322f5bb25fed82cb
 ```
 
-这是本次传输记录，不表示其他加速源可直接信任。遇到直连失败时先处理网络或确认替代传输方式，核对官方摘要后再使用本地已加载镜像。索引摘要与镜像配置 Id 属于不同对象，不能相互比较。
+上述历史传输记录不表示其他加速源可直接信任。遇到直连失败时先处理网络或确认替代传输方式，核对官方摘要后再使用本地已加载镜像。索引摘要与镜像配置 Id 属于不同对象，不能相互比较。
 
 文档推送和 CI 发布不会自动 SSH 更新服务器。新 `latest` 不代表正式环境已升级；以 `release.json` 与运行容器为准。Compose 本身不自动维护发布记录，每次实际发布需同步记录提交、镜像、备份位置和验证结果。
 
