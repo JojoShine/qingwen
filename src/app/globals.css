@@ -201,3 +201,9 @@ body:has(.phone-preview-page) .rc-virtual-list-scrollbar,.survey-preview-modal .
 .ant-switch.ant-switch-disabled.ant-switch-checked{background:#c6d7ce}
 
 .ant-switch.ant-switch-disabled .ant-switch-inner .ant-switch-inner-checked,.ant-switch.ant-switch-disabled .ant-switch-inner .ant-switch-inner-unchecked{color:#60796c}
+
+.login-demo{margin-top:24px;padding:16px 18px;border:1px solid var(--state-border);border-radius:10px;background:var(--state-hover)}
+.login-demo-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px}.login-demo-heading strong{font-size:14px;font-weight:500;color:var(--primary)}
+.login-form .login-demo .ant-btn{height:26px;margin:0;padding:0;font-size:13px;gap:0}
+.login-demo dl{margin:0;display:grid;gap:8px}.login-demo dl>div{display:flex;align-items:baseline;gap:14px}.login-demo dt{flex:0 0 28px;font-size:13px;color:#6b7e72}.login-demo dd{min-width:0;margin:0;color:#365c51;font-size:14px}.login-demo code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere;user-select:all}
+.login-demo>p{margin:12px 0 0;font-size:12px;line-height:1.7;color:#7f9388}

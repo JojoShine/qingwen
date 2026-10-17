@@ -35,6 +35,8 @@ services:
     environment:
       DATABASE_URL: postgresql://survey:${POSTGRES_PASSWORD:?请配置数据库密码}@db:5432/survey?schema=public
       APP_URL: ${APP_URL:-}
+      DEMO_USERNAME: ${DEMO_USERNAME:-}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-}
       TRUSTED_CLIENT_IP_HEADER: ${TRUSTED_CLIENT_IP_HEADER:-}
     depends_on:
       db:

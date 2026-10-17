@@ -82,6 +82,10 @@ curl -I http://127.0.0.1:3218/surveys/login
 
 迁移成功后应用才会启动；`migrate` 显示 `Exited (0)` 是正常结果。`db:seed` 仅初始化管理员，已有同名账号的密码不会被覆盖。使用下文 Nginx 配置后，通过 `https://tbtparent.me/surveys` 登录。此方案的所有后续 Compose 命令均使用 `--env-file .env.external-db -f compose.external-db.yaml`；不要同时运行下面的新建数据库方案。
 
+### 可选：登录页展示体验账号
+
+先在用户管理中创建一个普通测试账号，再在部署环境文件中设置 `DEMO_USERNAME` 和 `DEMO_PASSWORD`，重建应用容器即可在登录页公开展示凭据，并提供“填入账号”按钮。两项默认留空，均配置后才显示；这些配置不创建用户，也不重置密码。请勿配置管理员凭据。关闭展示时清空两项并重建应用，需要停止测试时在用户管理中禁用该账号。
+
 ### 2. 可选：新安装时使用 PostgreSQL 容器
 
 仅在没有现成 PostgreSQL 的新环境使用此方案；它会新建 PostgreSQL 17 容器及数据卷。当前服务器已有 `qingwen` 库，使用上一节。部署目录固定为 `/opt/qingwen`，只下载 Compose 和环境变量模板：
