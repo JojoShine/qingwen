@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { newQuestion, type Answers } from '../src/lib/survey';
 
-test('custom browser titles, native dates and contextual answer details work together', async ({ page, browser }) => {
+test('custom browser titles, dates and contextual answer details work together', async ({ page, browser }) => {
   const login = await page.request.post('/api/auth/login', { data: { username: process.env.ADMIN_USERNAME || 'admin', password: process.env.ADMIN_PASSWORD } });
   expect(login.ok()).toBe(true);
   const survey = await (await page.request.post('/api/surveys', { data: { title: '填写与答卷详情验收' } })).json();

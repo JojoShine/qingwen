@@ -69,7 +69,7 @@ test('all eleven question types accept valid mobile responses', async ({ page, b
     if(q.type==='select'){await block.getByRole('combobox').focus();await form.keyboard.press('ArrowDown');await form.keyboard.press('Enter');}
     if(q.type==='text'||q.type==='textarea')await block.getByRole('textbox').fill('真实的文字回答');
     if(q.type==='number')await block.getByRole('spinbutton').fill('12');
-    if(q.type==='date'){await block.getByRole('textbox').fill('2026-10-16');await block.getByRole('textbox').press('Enter');}
+    if(q.type==='date'){await block.getByRole('textbox').fill('2026-10-16');await block.getByRole('textbox').press('Enter');await form.getByRole('button',{name:'确定',exact:true}).click();}
     if(q.type==='rating')await block.locator('.ant-rate-star').nth(3).click();
     if(q.type==='ranking')await block.getByRole('button',{name:'上移 选项 2',exact:true}).click();
     if(q.type==='matrixSingle'||q.type==='matrixMultiple')for(const row of q.rows)await block.getByLabel(`${row.label} - ${q.options[0].label}`,{exact:true}).check();

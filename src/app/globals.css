@@ -211,7 +211,38 @@ body:has(.phone-preview-page) .rc-virtual-list-scrollbar,.survey-preview-modal .
 /* Keep touch feedback quiet; keyboard focus remains visible. */
 *{-webkit-tap-highlight-color:transparent}
 .survey-date-input{display:block;width:100%;min-width:0;max-width:100%;min-height:44px;padding:9px 12px;border:1px solid var(--border);border-radius:9px;background:#fff;color:var(--ink);font:inherit;font-size:16px;line-height:1.5;color-scheme:light;appearance:none;-webkit-appearance:none}
-.survey-date-input::-webkit-date-and-time-value{min-height:1.5em;text-align:left}
+.survey-date-field{position:relative}
+.survey-date-field .survey-date-input{padding-right:44px}
+.survey-date-input::placeholder{color:#91a099}
+.survey-date-trigger{position:absolute;right:1px;top:1px;bottom:1px;width:42px;border:0;background:transparent;color:var(--muted);border-radius:8px;cursor:pointer}
+.survey-date-trigger:hover:not(:disabled){color:var(--primary);background:var(--state-hover)}
+.survey-date-trigger:disabled{color:var(--state-disabled-text);cursor:not-allowed}
+.survey-date-trigger:focus-visible{outline:2px solid var(--state-border-selected);outline-offset:-4px}
+.date-precision-options{display:flex;flex-direction:column;gap:10px}
+.question-date-modal .ant-modal-container{padding:24px;box-shadow:none;border:1px solid var(--border)}
+.question-date-modal .ant-modal-title{font-size:16px;color:var(--ink)}
+.date-picker-value{margin:20px 0 12px;font-size:20px;line-height:1.5;text-align:center;font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums}
+.date-wheel-group{display:flex;gap:4px;position:relative}
+.date-wheel-group:before{content:'';position:absolute;left:0;right:0;top:116px;height:44px;border:1px solid #d7e9e0;background:#edf7f3;border-radius:8px;pointer-events:none}
+.date-wheel-column{flex:1;min-width:0;position:relative}
+.date-wheel-label{display:block;text-align:center;height:28px;line-height:28px;font-size:12px;color:var(--muted)}
+.date-wheel{height:220px;overflow-y:auto;overscroll-behavior:contain;scroll-snap-type:y mandatory;scrollbar-width:none;touch-action:pan-y;mask-image:linear-gradient(transparent,#000 30%,#000 70%,transparent)}
+.date-wheel::-webkit-scrollbar{display:none}
+.date-wheel:focus-visible{outline:1px solid var(--state-border-selected);outline-offset:-1px;border-radius:6px}
+.date-wheel-item{height:44px;line-height:44px;text-align:center;font-size:18px;font-weight:400;color:#7b8d83;scroll-snap-align:center;scroll-snap-stop:normal;cursor:pointer;font-variant-numeric:tabular-nums;user-select:none}
+.date-wheel-item.is-selected{color:var(--primary);font-weight:600}
+.date-picker-actions{display:flex;gap:10px;align-items:center;border-top:1px solid var(--border);padding-top:20px;margin-top:16px}
+.date-picker-actions>span{flex:1}
+.date-picker-actions .ant-btn{min-width:64px;box-shadow:none}
+@media(max-width:600px){
+  .question-date-wrap{display:flex;align-items:flex-end}
+  .question-date-wrap:before{display:none}
+  .question-date-modal.ant-modal{top:auto;margin:0;width:100%!important;max-width:100%;padding-bottom:0}
+  .question-date-modal .ant-modal-container{border-radius:20px 20px 0 0;padding:24px 16px calc(20px + env(safe-area-inset-bottom));border:0}
+  .date-picker-value{font-size:18px}
+  .date-wheel-group{gap:0}
+  .date-wheel-item{font-size:17px}
+}
 .survey-date-input:hover:not(:disabled){border-color:var(--state-border-selected)}
 .survey-date-input:focus{outline:none;box-shadow:none;border-color:var(--primary)}
 .survey-date-input:disabled{background:var(--state-disabled);border-color:var(--state-disabled-border);color:var(--state-disabled-text);cursor:not-allowed}

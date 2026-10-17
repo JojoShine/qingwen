@@ -1,10 +1,12 @@
+import { validDateValue, type DatePrecision } from './date-question';
+
 export const questionTypes = {
   single: '单选题', multiple: '多选题', select: '下拉选择', text: '单行填空', textarea: '多行填空',
   number: '数字题', date: '日期题', rating: '评分题', ranking: '排序题', matrixSingle: '矩阵单选', matrixMultiple: '矩阵多选', section: '分类标题',
 } as const;
 export type QuestionType = keyof typeof questionTypes;
 export type Option = { id: string; label: string };
-export type Question = { id: string; type: QuestionType; title: string; description: string; required: boolean; options: Option[]; rows: Option[]; other: boolean; otherInputMode?: 'single' | 'multiline'; placeholder: string; min?: number; max?: number; maxLength: number; textFormat?: 'text' | 'phone' | 'email'; exclusiveOptionId?: string | null; showWhen?: { questionId: string; optionId: string } | null };
+export type Question = { id: string; type: QuestionType; title: string; description: string; required: boolean; options: Option[]; rows: Option[]; other: boolean; otherInputMode?: 'single' | 'multiline'; datePrecision?: DatePrecision; placeholder: string; min?: number; max?: number; maxLength: number; textFormat?: 'text' | 'phone' | 'email'; exclusiveOptionId?: string | null; showWhen?: { questionId: string; optionId: string } | null };
 export type Answer = { value: string | string[] | number | Record<string, string | string[]> | null; other?: string };
 export type Answers = Record<string, Answer>;
 export type SurveyData = { id: string; title: string; browserTitle?: string; description: string; status: 'DRAFT' | 'ACTIVE' | 'CLOSED'; platform: 'mobile' | 'desktop'; showBranding?: boolean; brandName?: string; brandDescription?: string; startsAt?: string | null; endsAt?: string | null; maxResponses?: number | null; browserLimit?: number | null; ipLimit?: number | null; canLimitIp?: boolean; availability?: 'NOT_STARTED' | 'ENDED' | 'FULL' | 'LIMIT_REACHED'; availabilityMessage?: string; background: string; banner: string; bannerTitle?: string | null; bannerSubtitle?: string | null; bannerImage?: string | null; content: Question[]; publishedAt: string | null; updatedAt: string; createdAt: string; shareId: string; owner?: { name: string; username: string }; _count?: { responses: number } };
@@ -50,6 +52,7 @@ export function validateContent(content: unknown, publishing = true): Record<str
     if (publishing && q.type.startsWith('matrix') && (!Array.isArray(q.rows) || !q.rows.length)) errors[key] = '矩阵至少需要一行';
     for (const field of ['min', 'max']) if (q[field] !== undefined && (typeof q[field] !== 'number' || !Number.isFinite(q[field]))) errors[key] = '范围设置无效';
     if (q.otherInputMode !== undefined && (!['single','multiline'].includes(String(q.otherInputMode)) || !['single','multiple'].includes(q.type))) errors[key] = '其他填空方式无效';
+    if (q.datePrecision !== undefined && (!['date','minute','second'].includes(String(q.datePrecision)) || q.type !== 'date')) errors[key] = '日期精度设置无效';
     if (q.textFormat !== undefined && (!['text','phone','email'].includes(String(q.textFormat)) || q.type !== 'text')) errors[key] = '输入格式设置无效';
     if (q.exclusiveOptionId != null && (q.type !== 'multiple' || !(q.options as Option[]).some(o => o.id === q.exclusiveOptionId))) errors[key] = '互斥选项设置无效';
     if (q.showWhen != null) {
@@ -94,7 +97,7 @@ export function validateAnswers(content: Question[], input: unknown): Record<str
       case 'multiple': valid = validMany(v) && (q.exclusiveOptionId && (v as string[]).includes(q.exclusiveOptionId) ? (v as string[]).length === 1 && (v as string[]).length <= (q.max ?? allowed.length) : (v as string[]).length >= (q.min ?? 0) && (v as string[]).length <= (q.max ?? allowed.length)); break;
       case 'text': case 'textarea': valid = typeof v === 'string' && v.length <= q.maxLength; break;
       case 'number': valid = typeof v === 'number' && Number.isFinite(v) && v >= (q.min ?? -Infinity) && v <= (q.max ?? Infinity); break;
-      case 'date': valid = typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().slice(0, 10) === v; break;
+      case 'date': valid = typeof v === 'string' && validDateValue(v, q.datePrecision); break;
       case 'rating': valid = typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 5; break;
       case 'ranking': valid = validMany(v) && (v as string[]).length === q.options.length; break;
       case 'matrixSingle': case 'matrixMultiple': valid = record(v) && Object.keys(v).every(id => q.rows.some(r => r.id === id)) && q.rows.every(r => q.type === 'matrixSingle' ? validChoice(v[r.id]) : validMany(v[r.id]) && (v[r.id] as string[]).length > 0); break;
@@ -120,7 +123,7 @@ export function answerText(q: Question, a?: Answer): string {
   if (q.type.startsWith('matrix') && record(a.value)) return q.rows.map(r => `${r.label}：${Array.isArray((a.value as Record<string, unknown>)[r.id]) ? ((a.value as Record<string, string[]>)[r.id]).map(label).join('、') : label(String((a.value as Record<string, string>)[r.id] || '—'))}`).join('\n');
   if (Array.isArray(a.value)) return a.value.map(label).join(q.type === 'ranking' ? ' → ' : '、');
   if (['single', 'select'].includes(q.type)) return label(String(a.value));
-  return String(a.value);
+  return q.type === 'date' ? String(a.value).replace('T', ' ') : String(a.value);
 }
 export function buildCsv(content: Question[], responses: { createdAt: string | Date; answers: Answers; isValid?: boolean }[]): string {
   const columns = content.filter(q => q.type !== 'section').flatMap<{ q: Question; row: Option | undefined; title: string }>(q => q.type.startsWith('matrix') ? q.rows.map(r => ({ q, row: r, title: `${q.title} / ${r.label}` })) : [{ q, row: undefined, title: q.title }]);

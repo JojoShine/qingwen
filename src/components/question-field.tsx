@@ -4,6 +4,7 @@ import { ArrowUpOutlined, ArrowDownOutlined, HolderOutlined } from '@ant-design/
 import { DndContext, PointerSensor, KeyboardSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import DateQuestion from './date-question';
 import { ratingLabels, type Answer, type Question } from '@/lib/survey';
 function RankingItem({ id, label, index, count, disabled, move }: { id: string; label: string; index: number; count: number; disabled: boolean; move: (from: number, to: number) => void }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id, disabled });
@@ -21,7 +22,7 @@ export default function QuestionField({ question: q, answer, onChange, disabled 
     case 'text': return <Input type={q.textFormat === 'email' ? 'email' : q.textFormat === 'phone' ? 'tel' : 'text'} inputMode={q.textFormat === 'phone' ? 'tel' : q.textFormat === 'email' ? 'email' : 'text'} disabled={disabled} aria-label={q.title} value={typeof v === 'string' ? v : ''} placeholder={q.placeholder || '请输入你的回答'} maxLength={q.maxLength} onChange={e => update(e.target.value)}/>;
     case 'textarea': return <Input.TextArea disabled={disabled} aria-label={q.title} rows={4} value={typeof v === 'string' ? v : ''} placeholder={q.placeholder || '写下你的想法…'} maxLength={q.maxLength} showCount onChange={e => update(e.target.value)}/>;
     case 'number': return <InputNumber disabled={disabled} aria-label={q.title} style={{ width: '100%' }} value={typeof v === 'number' ? v : null} placeholder={q.placeholder || '请输入数字'} min={q.min} max={q.max} onChange={value => update(value)}/>;
-    case 'date': return <input type="date" className="survey-date-input" disabled={disabled} aria-label={q.title} value={typeof v === 'string' ? v : ''} onChange={e => update(e.target.value || null)}/>;
+    case 'date': return <DateQuestion title={q.title} precision={q.datePrecision} value={typeof v === 'string' ? v : ''} disabled={disabled} onChange={update}/>;
     case 'rating': return <div className="rating-field"><Rate disabled={disabled} tooltips={[...ratingLabels]} value={typeof v === 'number' ? v : 0} onChange={value => update(value || null)}/><div><span>{ratingLabels[0]}</span><span>{ratingLabels[4]}</span></div>{typeof v === 'number' && v > 0 && <p className="rating-selection" aria-live="polite">{ratingLabels[v - 1]}</p>}</div>;
     case 'ranking': {
       const order = Array.isArray(v) && v.length === q.options.length ? v : q.options.map(o => o.id);
