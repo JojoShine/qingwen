@@ -29,17 +29,19 @@
 | 数据层 | PostgreSQL 17、Prisma 7、pg 驱动与版本化数据库迁移 |
 | 校验与认证 | Zod、服务端角色/归属校验、加盐密码哈希、数据库会话与 HttpOnly Cookie |
 | 验证 | Vitest 单元/接口测试、Playwright 浏览器测试 |
-| 部署 | 多阶段 Docker 镜像、Next.js standalone、统一业务镜像与一次性迁移服务、Docker Compose |
+| 部署 | 多阶段 Docker 镜像、Next.js standalone、单镜像内置 PostgreSQL、自动迁移与初始化、Docker Compose |
 
 不需要 Redis、对象存储或独立后端服务。普通账号由管理员创建，当前不提供公开注册、多租户、多人协作、复杂跳题、考试计分或答题附件上传。
 
 ## Docker 快速部署
 
-默认安装包含轻问应用、数据库迁移和 PostgreSQL 17，使用 Docker Compose 成套部署。应用与迁移共用 [Docker Hub 镜像 `jojoshine/qingwen`](https://hub.docker.com/r/jojoshine/qingwen)，数据库使用 Docker Hub 官方镜像 `postgres:17-alpine`，通过命名卷持久化数据。PostgreSQL 单独运行在数据库容器中，不打包进轻问应用镜像；用户无需预先安装数据库，也无需下载源码或在服务器构建。
+[Docker Hub 镜像 `jojoshine/qingwen`](https://hub.docker.com/r/jojoshine/qingwen) 内置 **轻问应用、PostgreSQL 17、迁移与管理员初始化工具**。一个镜像、一个容器即可运行，无需预装或另起数据库服务，无需源码构建。首次启动自动建库、迁移并创建管理员；后续启动只应用新增迁移，不覆盖已有管理员密码。
+
+数据库数据保存在独立持久化卷中，不随容器删除而丢失。迁移到另一台机器时，带上环境配置和数据库备份即可恢复用户、问卷、答卷及 Banner。
 
 需要 Docker Engine / Docker Desktop 与 Docker Compose v2，当前发布镜像支持 Linux amd64。Docker 安装见 [Linux Docker Engine](https://docs.docker.com/engine/install/) 或 [Docker Desktop](https://docs.docker.com/desktop/)。先确认 `docker info` 和 `docker compose version` 均成功。
 
-### 默认安装：自带 PostgreSQL
+### 安装与启动
 
 只下载 [compose.prod.yaml](compose.prod.yaml) 和 [.env.docker.example](.env.docker.example)：
 
@@ -52,28 +54,22 @@ curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/.env.docker.
 chmod 600 .env.docker
 ```
 
-编辑 `.env.docker`，填写 `POSTGRES_PASSWORD`（建议用 `openssl rand -hex 24` 生成）和至少 8 位的 `ADMIN_PASSWORD`。默认 `QINGWEN_IMAGE=docker.io/jojoshine/qingwen:latest`，应用从根路径访问；`APP_URL` 留空即可自动获取当前访问地址。
+编辑 `.env.docker`，填写 `POSTGRES_PASSWORD`（可用 `openssl rand -hex 24` 生成）和至少 8 位的 `ADMIN_PASSWORD`。默认 `QINGWEN_IMAGE=docker.io/jojoshine/qingwen:latest`，`APP_URL` 留空即可自动获取当前访问地址。不要设置 `DATABASE_URL`，容器自动连接内置数据库。
 
 ```sh
 docker compose --env-file .env.docker -f compose.prod.yaml pull &&
-docker compose --env-file .env.docker -f compose.prod.yaml up -d --wait db &&
-docker compose --env-file .env.docker -f compose.prod.yaml run --rm --no-deps -T migrate </dev/null &&
-docker compose --env-file .env.docker -f compose.prod.yaml run --rm --no-deps -T migrate pnpm db:seed </dev/null &&
-docker compose --env-file .env.docker -f compose.prod.yaml up -d --no-deps --no-build --wait app
-docker compose --env-file .env.docker -f compose.prod.yaml ps -a
+docker compose --env-file .env.docker -f compose.prod.yaml up -d --no-build --wait
+docker compose --env-file .env.docker -f compose.prod.yaml ps
+docker compose --env-file .env.docker -f compose.prod.yaml logs --tail=100 app
 ```
 
-执行顺序为：从 Docker Hub 拉取应用和数据库镜像 → PostgreSQL 健康 → 迁移 → 初始化管理员 → 启动应用。`&&` 在任一步失败时停止。`db:seed` 仅首次初始化管理员，升级时无需再执行，不覆盖已有密码；镜像构建和应用启动不会自动生成账号或演示数据。
+本机访问 <http://localhost:3218/login>，使用配置的管理员账号和密码。默认仅监听 `127.0.0.1:3218`，正式对外服务需配置 HTTPS 反向代理。内置 PostgreSQL 仅监听容器内部 loopback；数据挂载到 `qingwen_data` 命名卷。停止服务使用 `down`，保留数据卷。
 
-本机访问 <http://localhost:3218/login>。应用默认仅监听 `127.0.0.1:3218`，数据库不向宿主机发布端口，数据保存在 `survey_pgdata` 命名卷中。正式对外服务需配置 HTTPS 反向代理；停止服务时保留数据卷。部署 `/surveys` 时选择 `docker.io/jojoshine/qingwen:latest-surveys`，路径前缀在构建时写入，不能通过运行时变量修改。
+部署 `/surveys` 时选择 `docker.io/jojoshine/qingwen:latest-surveys`，路径前缀在构建时写入，不能通过运行时变量修改。公开安装镜像默认从 Docker Hub 获取，GHCR 保留同版本副本。GitHub CI 验证单容器启动、重建保留数据和备份恢复后才发布镜像；推送 GitHub 不会自动更新服务器。
 
-### 可选：连接已有 PostgreSQL
+**已有部署升级需注意**：旧版独立 PostgreSQL 容器或宿主机数据库的数据不会自动搬入新卷。先备份，再按[迁入内置数据库](docs/DEPLOYMENT.md#四迁入内置数据库)步骤导入。当前 `tbtparent.me` 的已有库仍保持原状，旧外部数据库配置仅作为迁移过渡兼容。
 
-已有数据库时改用 [compose.external-db.yaml](compose.external-db.yaml) 和 [.env.external-db.example](.env.external-db.example)，填写 `DATABASE_URL`，按[已有数据库步骤](docs/DEPLOYMENT.md#2-可选连接已有-postgresql)执行。这一路径仍从 Docker Hub 拉取轻问镜像，但不启动数据库容器。当前 `tbtparent.me` 服务器使用此方案，继续保留已有的 `qingwen` 库。
-
-本地源码开发使用 `.env` 和 `compose.yaml`，后者只启动开发数据库。这三个 Compose 文件分别独立使用，不合并运行。
-
-实际发布链路：**提交 main → GitHub CI 检查与测试 → 构建并验证统一业务镜像及配套 PostgreSQL → 发布 Docker Hub，同时同步 GHCR → 用户拉取镜像 → 迁移并启动**。Docker Hub 是面向用户的默认下载渠道，GHCR 保留为镜像副本。发布凭据配置、固定版本、Nginx、升级与备份见[部署文档](docs/DEPLOYMENT.md)。推送 GitHub 不会自动更新服务器。
+安装、备份、换机恢复、固定版本和独立 Nginx 配置见[部署文档](docs/DEPLOYMENT.md)。本地源码开发仍使用 `.env` 和 `compose.yaml`，后者只启动开发数据库，与用户的单容器安装分开。
 
 ## 本地开发
 
@@ -144,10 +140,11 @@ src/components/       问卷库、编辑器、共享题型、填写页与结果�
 src/lib/              题型校验、权限、会话、统计与数据库访问
 prisma/               Schema、迁移、管理员初始化与示例数据
 tests/                接口与浏览器验收
-Dockerfile            包含应用、迁移与管理员初始化的统一 runner 镜像
+Dockerfile            内置应用、PostgreSQL、迁移与管理员初始化的 runner 镜像
 compose.yaml          本地开发 PostgreSQL
-compose.external-db.yaml  可选：Docker Hub 镜像连接已有 PostgreSQL
-compose.prod.yaml         默认 Docker Hub 安装：应用、迁移与 PostgreSQL
+compose.external-db.yaml  旧外部数据库部署的过渡兼容配置
+compose.prod.yaml         单容器部署与持久化数据库卷
+deploy/docker/        单容器启动、进程退出与备份恢复入口
 deploy/nginx/         已有域名下 /surveys 的 Nginx 配置示例
 docs/DEPLOYMENT.md    Docker / 源码部署与运维
 ```

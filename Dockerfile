@@ -21,10 +21,18 @@ RUN pnpm build
 FROM dependencies AS production-dependencies
 RUN pnpm prune --prod
 
-# One image runs the app by default, or explicit migration/initialization commands.
-FROM base AS runner
+# The delivered image contains both the application and PostgreSQL.
+FROM postgres:17-bookworm AS runner
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends tini libstdc++6 openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 1000 node \
+    && useradd --uid 1000 --gid node --create-home node
+COPY --from=base /usr/local/bin/node /usr/local/bin/node
+COPY --from=base /usr/local/lib/node_modules/pnpm /usr/local/lib/node_modules/pnpm
+RUN ln -s ../lib/node_modules/pnpm/bin/pnpm.cjs /usr/local/bin/pnpm
 ARG NEXT_PUBLIC_BASE_PATH=
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000 NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH}
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000 NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH} POSTGRES_USER=survey POSTGRES_DB=survey
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
 COPY --from=dependencies --chown=node:node /app/prisma ./prisma
 COPY --from=dependencies --chown=node:node /app/prisma.config.ts ./prisma.config.ts
@@ -32,8 +40,10 @@ COPY --chown=node:node src/lib/db.ts src/lib/password.ts ./src/lib/
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --chown=node:node LICENSE ./LICENSE
-USER node
+COPY --chmod=755 deploy/docker/entrypoint.sh /usr/local/bin/qingwen-entrypoint.sh
+STOPSIGNAL SIGTERM
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD node -e "fetch('http://127.0.0.1:3000'+process.env.NEXT_PUBLIC_BASE_PATH+'/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=10s --timeout=5s --start-period=90s --retries=3 \
+    CMD if [ -z "$DATABASE_URL" ]; then pg_isready -q -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" || exit 1; fi; node -e "fetch('http://127.0.0.1:3000'+process.env.NEXT_PUBLIC_BASE_PATH+'/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/qingwen-entrypoint.sh"]
 CMD ["node", "server.js"]

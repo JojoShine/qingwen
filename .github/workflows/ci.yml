@@ -158,30 +158,47 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=runner-${{ matrix.variant }}
           cache-to: type=gha,mode=max,scope=runner-${{ matrix.variant }}
-      - name: Verify migrations, initialization and application from the same image
+      - name: Verify embedded database, persistence and backup recovery
         run: |
-          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml up -d --wait db
-          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml run --rm --no-deps -T migrate </dev/null
-          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml run --rm --no-deps -T migrate </dev/null
-          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml run --rm --no-deps -T migrate pnpm db:seed </dev/null
-          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml run --rm --no-deps -T -e ADMIN_PASSWORD=ShouldNotOverwrite123 migrate pnpm db:seed </dev/null
-          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml up -d --no-deps --no-build --wait app
-          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml exec -T app node <<'NODE'
+          cat > /tmp/qingwen-image-check.cjs <<'NODE'
           const assert = require('node:assert/strict');
           (async () => {
             const base = 'http://127.0.0.1:3000' + process.env.NEXT_PUBLIC_BASE_PATH;
             assert((await fetch(base + '/login')).ok, 'Login page must load');
+            const origin = 'http://127.0.0.1:3000';
             const response = await fetch(base + '/api/auth/login', {
-              method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:3000' },
+              method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin },
               body: JSON.stringify({ username: 'ci_image_admin', password: 'ImageOnly!12345678' }),
             });
-            assert(response.ok, 'Initialized account must retain its original password');
+            assert(response.ok, 'Original administrator password must still work');
             const cookie = response.headers.getSetCookie().map(value => value.split(';')[0]).join('; ');
             assert(cookie, 'Login must issue a session');
-            assert((await fetch(base + '/api/surveys', { headers: { Cookie: cookie } })).ok, 'Authenticated database query must succeed');
-            console.log('Unified image migration, initialization and login verified');
+            const headers = { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' };
+            const title = 'Container persistence verification';
+            if (process.env.CHECK_CREATE === '1') {
+              const created = await fetch(base + '/api/surveys', { method: 'POST', headers, body: JSON.stringify({ title }) });
+              assert(created.ok, 'Survey must be created in embedded PostgreSQL');
+            }
+            const surveys = await fetch(base + '/api/surveys', { headers });
+            assert(surveys.ok, 'Authenticated database query must succeed');
+            assert((await surveys.json()).items.some(item => item.title === title), 'Survey must survive container recreation and backup recovery');
+            console.log('Embedded database login and persisted survey verified');
           })().catch(error => { console.error(error); process.exit(1); });
           NODE
+          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml up -d --no-build --wait app
+          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml exec -T -e CHECK_CREATE=1 app node < /tmp/qingwen-image-check.cjs
+          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml exec -T app psql -U survey -d survey -Atc 'SHOW listen_addresses' | grep -Fx 127.0.0.1
+          container_id=$(docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml ps -q app)
+          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml stop app
+          test "$(docker inspect --format '{{.State.ExitCode}}' "$container_id")" != 137
+          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml down
+          ADMIN_PASSWORD=ShouldNotOverwrite123 docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml up -d --no-build --wait app
+          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml exec -T app node < /tmp/qingwen-image-check.cjs
+          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml exec -T app pg_dump -U survey -d survey -Fc > /tmp/qingwen-image.dump
+          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml down -v
+          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml run --rm --no-deps -T app restore < /tmp/qingwen-image.dump
+          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml up -d --no-build --wait app
+          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml exec -T app node < /tmp/qingwen-image-check.cjs
       - name: Container diagnostics
         if: failure()
         run: docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml logs --no-color --tail=100
