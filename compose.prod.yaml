@@ -40,7 +40,7 @@ services:
       - "${APP_BIND:-127.0.0.1}:${APP_PORT:-3218}:3000"
     environment:
       DATABASE_URL: postgresql://survey:${POSTGRES_PASSWORD:?请配置数据库密码}@db:5432/survey?schema=public
-      APP_URL: ${APP_URL:?请在 .env.docker 中配置外部访问地址}
+      APP_URL: ${APP_URL:-}
       TRUSTED_CLIENT_IP_HEADER: ${TRUSTED_CLIENT_IP_HEADER:-}
     depends_on:
       db:

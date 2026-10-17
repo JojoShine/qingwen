@@ -25,7 +25,7 @@ chmod 600 .env.docker
 | 变量 | 用途 |
 | --- | --- |
 | `POSTGRES_PASSWORD` | 必填，数据库密码；建议 `openssl rand -hex 24` 生成，仅使用字母数字以便拼接连接 URL |
-| `APP_URL` | 必填，实际公开访问地址，例如 `https://survey.example.com`；用于问卷链接、二维码和来源校验，不带路径 |
+| `APP_URL` | 可选，默认留空；分享链接和二维码自动使用当前浏览器的协议、域名/IP 和端口。填写时优先使用此固定地址，例如 `https://survey.example.com`，不带路径 |
 | `APP_BIND` | 默认 `127.0.0.1`，宿主机监听地址；适用于同机反向代理 |
 | `APP_PORT` | 默认 `3218`，宿主机应用端口 |
 | `ADMIN_USERNAME` | 初始管理员账号，默认 `admin` |
@@ -47,7 +47,7 @@ docker compose --env-file .env.docker -f compose.prod.yaml ps -a
 
 启动顺序为 PostgreSQL 健康 → `migrate` 执行全部待应用迁移 → 应用启动。`migrate` 显示 `Exited (0)` 是正常结果；`app` 应显示 healthy。迁移失败时应用不会启动，请先检查日志。管理员初始化命令可重复执行，已有同名账号的密码不会被覆盖。
 
-默认本机访问 <http://localhost:3218>；正式访问使用 HTTPS 域名。本机验证可以保留 `APP_URL=http://localhost:3218`，现代浏览器对 localhost 的 Secure Cookie 有特殊处理；不要把这个地址作为其他设备扫码的地址。
+默认本机访问 <http://localhost:3218>；正式访问使用 HTTPS 域名。`APP_URL` 留空即可自动获取访问地址；现代浏览器对 localhost 的 Secure Cookie 有特殊处理，但 localhost 链接无法从另一台设备扫码访问。
 
 ```sh
 docker compose --env-file .env.docker -f compose.prod.yaml logs --tail=100 app migrate
@@ -111,7 +111,9 @@ server {
 }
 ```
 
-设置 `APP_URL=https://survey.example.com` 后重建应用容器：
+通过 `https://survey.example.com` 访问后台后，分享链接会自动使用该域名，无需设置 `APP_URL`。代理需按上例保留 Host 并覆盖 `X-Forwarded-Proto`，使 HTTPS 请求来源校验正常。
+
+只有后台访问地址与分享域名不同时，才需要设置 `APP_URL=https://survey.example.com` 固定分享地址；环境配置变更后重建应用容器：
 
 ```sh
 docker compose --env-file .env.docker -f compose.prod.yaml up -d app
@@ -150,7 +152,8 @@ chmod 600 .env
 
 ```dotenv
 DATABASE_URL="postgresql://survey:替换为数据库密码@127.0.0.1:5432/survey?schema=public"
-APP_URL="https://survey.example.com"
+# 留空自动跟随浏览器；需要固定分享域名时再填写。
+APP_URL=""
 ADMIN_USERNAME="admin"
 ADMIN_PASSWORD="替换为至少8位的管理员密码"
 ADMIN_NAME="管理员"
@@ -215,6 +218,12 @@ journalctl -u qingwen -n 100 --no-pager
 
 随后按前文配置 HTTPS 代理。更新依赖与构建时使用有权写入项目目录的部署账号，避免不同用户创建的文件导致权限错误。
 
+### 访问地址规则
+
+默认分享地址取自当前浏览器地址栏，保留协议、主机和端口，不会使用 Docker 内部的 `app:3000` 等地址。`APP_URL` 仅作为固定分享地址的可选覆盖。
+
+已有部署若此前填写过 `APP_URL`，升级不会自动清除该值；需要自动获取时请清空或删除变量，然后重建应用容器或重启源码服务。后台从 localhost 打开时，生成的链接也会使用 localhost；手机扫码前应从可访问的域名或局域网 IP 打开后台。
+
 ## 四、升级与回退
 
 升级前备份数据库和实际环境配置，记录当前 Git 提交及镜像版本。不要修改已经应用的历史迁移。
@@ -275,8 +284,8 @@ docker compose --env-file .env.docker -f compose.prod.yaml up -d --no-build
 | pnpm 锁文件不兼容 | 使用 `packageManager` 指定的 pnpm 10.26.0，不删除锁文件绕过 |
 | `migrate` 失败 | 查看 `logs migrate`，核对数据库连接、密码和权限 |
 | 修改密码变量后连库失败 | PostgreSQL 环境变量仅用于首次建库；已有卷中的密码需通过 SQL 修改 |
-| 登录后又回登录页 | 核对 HTTPS、Secure Cookie、代理 Host 和 `APP_URL` |
-| 二维码在手机无法打开 | `APP_URL` 使用手机可访问的域名，不能填写 localhost 或 Docker 内部服务名 |
+| 登录后又回登录页 | 核对 HTTPS、Secure Cookie，以及代理是否正确传递 Host 和 `X-Forwarded-Proto` |
+| 二维码在手机无法打开 | 通过手机可访问的域名或局域网 IP 打开后台后重新分享；如果设置了 `APP_URL`，检查覆盖地址是否正确 |
 | IP 次数开关不可用 | 配置并验证可信单值 IP 头，禁止客户端绕过代理 |
 | 更新后看不到旧数据 | 检查 Compose 项目名、数据卷及 `DATABASE_URL` 是否仍指向原库 |
 | 忘记管理员密码 | 已有其他管理员可在用户管理中重置；`db:seed` 不会覆盖已有密码 |

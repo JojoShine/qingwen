@@ -43,7 +43,7 @@ cd qingwen
 cp .env.docker.example .env.docker
 ```
 
-编辑 `.env.docker`：填写 `POSTGRES_PASSWORD`、至少 8 位的 `ADMIN_PASSWORD`；将 `APP_URL` 设为实际访问地址。建议用 `openssl rand -hex 24` 生成数据库密码，避免连接 URL 中的特殊字符。
+编辑 `.env.docker`：填写 `POSTGRES_PASSWORD`、至少 8 位的 `ADMIN_PASSWORD`。`APP_URL` 默认留空，分享链接和二维码自动使用当前浏览器访问地址；需要固定分享域名时再填写。建议用 `openssl rand -hex 24` 生成数据库密码，避免连接 URL 中的特殊字符。
 
 ```sh
 docker compose --env-file .env.docker -f compose.prod.yaml up -d --build
@@ -51,7 +51,7 @@ docker compose --env-file .env.docker -f compose.prod.yaml run --rm --no-deps mi
 docker compose --env-file .env.docker -f compose.prod.yaml ps -a
 ```
 
-本机访问 <http://localhost:3218>，使用配置的管理员账号登录。应用默认仅绑定本机；对外服务请配置 HTTPS 反向代理并修改 `APP_URL`。数据库持久化至命名卷；迁移自动执行，管理员初始化显式执行且不会覆盖已有密码。
+本机访问 <http://localhost:3218>，使用配置的管理员账号登录。应用默认仅绑定本机；对外服务请配置 HTTPS 反向代理，并通过该域名访问后台。数据库持久化至命名卷；迁移自动执行，管理员初始化显式执行且不会覆盖已有密码。
 
 以上命令从源码构建本地镜像，项目尚未提供预发布公共镜像。生产部署、镜像迁移、升级、备份与源码部署详见 [部署文档](docs/DEPLOYMENT.md)。
 
@@ -89,7 +89,7 @@ pnpm dev
 4. 保存并预览试填。确认后发布，通过链接或二维码收集答卷。
 5. 在“查看结果”中统计、筛选、查看答卷和导出 CSV，必要时结束或恢复收集。
 
-手机扫码时，`APP_URL` 必须为手机能访问的地址；本地开发可使用同一局域网内的电脑 IP，修改后重启应用。二维码中的 `localhost` 无法从另一台设备访问。
+分享链接默认跟随当前浏览器地址，自动保留 HTTP/HTTPS、域名或 IP 以及端口。手机扫码时，请通过手机可访问的域名或局域网 IP 打开后台再分享；二维码中的 `localhost` 无法从另一台设备访问。需要固定分享地址时可选填 `APP_URL`，优先于自动获取。已有部署若设置过 `APP_URL`，清空或删除并重启应用即可启用自动获取。
 
 ## 收集规则说明
 
