@@ -34,7 +34,8 @@ test('create, edit, publish, respond, inspect and close a survey', async ({ page
   const download = page.waitForEvent('download');
   await page.getByRole('link', { name: /导出 CSV/ }).click();
   expect((await download).suggestedFilename()).toMatch(/\.csv$/);
-  await page.goto('/surveys');
+  await page.getByRole('link', { name: '返回问卷列表', exact: true }).click();
+  await expect(page).toHaveURL(/\/surveys$/);
   await page.getByPlaceholder('搜索问卷名称').fill('自动化验收问卷');
   await page.getByRole('button', { name: '更多操作' }).first().click();
   await page.getByText('结束收集', { exact: true }).click();
