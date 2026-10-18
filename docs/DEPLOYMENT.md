@@ -509,25 +509,27 @@ docker build --target runner --build-arg NEXT_PUBLIC_BASE_PATH=/surveys -t qingw
 
 ## 附录：当前正式环境
 
-正式环境于 **2026-10-18 00:39（Asia/Shanghai）** 切换到内置 PostgreSQL，并于 **2026-10-18 01:05（Asia/Shanghai）** 将同版本镜像地址切换为 GHCR。以下配置已通过实际容器和 `/opt/qingwen/release.json` 核对：
+当前版本于 **2026-10-18 01:30（Asia/Shanghai）** 部署，并于 **01:34** 完成正式验收。以下配置已通过实际容器和 `/opt/qingwen/release.json` 核对：
 
 | 项目 | 当前实际配置 |
 | --- | --- |
 | 入口 | `https://tbtparent.me/surveys/login` |
 | 部署目录与文件 | `/opt/qingwen`；`compose.prod.yaml`、`.env.docker` |
 | Compose 项目 / 服务 / 容器 | `qingwen` / `app` / `qingwen-app-1`，仅一个业务容器 |
-| 当前应用版本 | 提交 `56260bca01fa839109d75e4e539170b6eeb1ce61`，`/surveys` 变体；切换镜像源未升级应用 |
-| 实际运行镜像 | `ghcr.io/jojoshine/qingwen:sha-56260bca01fa839109d75e4e539170b6eeb1ce61-surveys` |
+| 当前应用版本 | 提交 `d115927cd777576f9d74f86ca23d82854b2e420e`，`/surveys` 变体；包含黑白分享二维码与中心 Logo 上传 |
+| 实际运行镜像 | `ghcr.io/jojoshine/qingwen:sha-d115927cd777576f9d74f86ca23d82854b2e420e-surveys` |
 | 数据库 | 容器内 PostgreSQL 17.11，库名及角色均为 `survey`；未配置外部 `DATABASE_URL` |
 | 数据卷 | `qingwen_qingwen_data` → `/var/lib/postgresql/data` |
 | 应用端口 | 宿主机 `127.0.0.1:3218` → 容器 `3000`；数据库端口不向宿主机发布 |
 | 独立 Nginx 配置 | `/etc/nginx/business/tbtparent-me/qingwen.conf`，沿用原 `/surveys` 代理和证书 |
 | 发布记录 | `/opt/qingwen/release.json`，记录镜像摘要、版本、数据卷、备份和验证结果 |
-| 最近切换备份 | `/opt/qingwen/backups/20261017T170503Z-ghcr-registry-switch/` |
+| 最近升级备份 | `/opt/qingwen/backups/20261017T172943Z-d115927-qr-logo/` |
 
 原宿主机 PostgreSQL 14.24 的 `qingwen` 库已迁入内置数据库，全部表的行数和内容摘要一致；原账号密码、问卷及答卷保留。旧库和旧部署配置继续留作回退依据，不再承担当前应用读写。旧 `.env.external-db` 与 `compose.external-db.yaml` 不用于日常启动、升级或备份。
 
-最近一次 GHCR 地址切换前的备份位于 `/opt/qingwen/backups/20261017T170503Z-ghcr-registry-switch/`，包含 `qingwen.dump`、`qingwen.dump.sha256`、切换前的 `.env.docker`、`compose.prod.yaml`、`release.json`、`image-reference.txt` 和业务表校验记录。该目录中的镜像引用为切换前的同版本 Docker Hub 地址，用于回退核对。
+本次升级前的备份位于 `/opt/qingwen/backups/20261017T172943Z-d115927-qr-logo/`，包含 `qingwen.dump`、校验文件、升级前环境与 Compose、Nginx 配置及发布记录。备份已在独立临时数据库试恢复；同目录还保存 `qr-browser-verification.json`、`concurrent-write-audit.json` 和验收后的 `release.deployed.json`。
+
+历史 GHCR 地址切换前的备份位于 `/opt/qingwen/backups/20261017T170503Z-ghcr-registry-switch/`，包含 `qingwen.dump`、`qingwen.dump.sha256`、切换前的 `.env.docker`、`compose.prod.yaml`、`release.json`、`image-reference.txt` 和业务表校验记录。该目录中的镜像引用为切换前的同版本 Docker Hub 地址，用于回退核对。
 
 首次迁移到内置 PostgreSQL 的历史备份仍保留在 `/opt/qingwen/backups/20261017T163140Z-56260bc-embedded/`。目录时间戳使用 UTC，与北京时间相差 8 小时。其中：
 
@@ -540,17 +542,18 @@ docker build --target runner --build-arg NEXT_PUBLIC_BASE_PATH=/surveys -t qingw
 
 ### 当前 GHCR 镜像与历史传输记录
 
-最近一次切换已从官方 `ghcr.io` 成功拉取上表中的固定版本，核对镜像索引摘要及镜像配置 Id 与原运行镜像完全一致，再重建应用容器。当前 `.env.docker` 的 `QINGWEN_IMAGE` 和运行容器均使用该 GHCR 地址，未使用 `latest`，应用版本、内置 PostgreSQL 数据卷、端口和 `/surveys` 路径保持不变，Nginx 未改动。
+本次部署在 [CI 与镜像发布](https://github.com/JojoShine/qingwen/actions/runs/39053117001)全部成功后，拉取并核对上表中的固定版本，再备份数据和配置、重建容器。新增迁移 `202610180001_qr_logo` 已成功执行。当前 `.env.docker` 的 `QINGWEN_IMAGE` 和运行容器均使用该 GHCR 地址，未使用 `latest`；内置 PostgreSQL 数据卷、端口和 `/surveys` 路径保持不变，Nginx 未改动。
 
-切换后容器健康，用户、问卷、答卷及数据库迁移记录的数量和内容摘要与切换前一致；已验证 HTTPS 登录页、静态资源、管理员登录、问卷与结果页及公开填写页，服务器外部访问登录页返回 HTTP 200。
+部署后容器健康，原用户、问卷内容和答卷通过备份试恢复及逐字段核对，保留上线期间的新写入。HTTPS 登录页、静态资源、管理员登录、问卷、结果页及公开填写页均验证正常。黑白二维码、Logo 上传、刷新后保留、下载、移除及手机宽度显示已在正式页面验收，两种下载的二维码均被原生识别器解码到同一 `/surveys` 地址；临时验收问卷已删除。
 
-首次迁移到内置 PostgreSQL 时曾因 Docker Hub 直连超时，经确认通过 GHCR 副本及 `ghcr.nju.edu.cn` 缓存传输，并核对官方镜像摘要。这仅是首次迁移的历史传输方式；当前正式环境使用官方 GHCR 地址，没有在服务器上传源码或构建镜像。
+本次官方 GHCR 的大镜像层下载超时，通过 `ghcr.nju.edu.cn` 按官方摘要取得相同镜像层后，再次完成官方 `ghcr.io` 拉取与摘要登记；镜像索引、平台 manifest 和配置摘要均已核对。正式环境使用官方 GHCR 地址，没有在服务器上传源码或构建镜像。首次迁移到内置 PostgreSQL 时也曾使用经摘要核验的 GHCR 缓存传输，历史记录仍保留在对应备份目录中。
 
 当前固定版本的核验值为：
 
 ```text
-Docker Hub / GHCR 镜像索引：sha256:a4e409b7d8ac53b76abb15e75ea612f090f779a51fd76b517f51605d98854042
-linux/amd64 镜像配置（docker image inspect 的 Id）：sha256:779f5e2940b9f17d86c56f4e915d3f1340a302cd9321b1f9322f5bb25fed82cb
+GHCR 镜像索引：sha256:6e7a41ddd822587b68dcff619d6452529097dd62e2a8210deee5d13785c4b823
+linux/amd64 平台 manifest：sha256:7e16b773daddd695d07e1ac483ba94d007c1a435a798066eb9d5e97a2fa58a16
+linux/amd64 镜像配置（docker image inspect 的 Id）：sha256:6e80db0f3958e8634b0142f7dbd341ef3c88815f8a5c40d981231f1ab415cf13
 ```
 
 上述历史传输记录不表示其他加速源可直接信任。遇到直连失败时先处理网络或确认替代传输方式，核对官方摘要后再使用本地已加载镜像。索引摘要与镜像配置 Id 属于不同对象，不能相互比较。
