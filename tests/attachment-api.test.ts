@@ -3,10 +3,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import sharp from 'sharp';
 import { db } from '../src/lib/db';
 import { hashPassword } from '../src/lib/password';
 import { newQuestion } from '../src/lib/survey';
-import { uploadsDirectory } from '../src/lib/attachment-storage';
+import { removeAttachment, uploadsDirectory } from '../src/lib/attachment-storage';
 const base = process.env.TEST_BASE_URL || 'http://localhost:3218';
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aV1cAAAAASUVORK5CYII=', 'base64');
 let cookie = '', otherCookie = '', ownerId = '', otherId = '', surveyId = '', shareId = '';
@@ -42,6 +43,27 @@ describe.skipIf(process.env.RUN_INTEGRATION !== '1')('attachment submission and 
     expect((await upload(new File([new Uint8Array(5 * 1024 * 1024)], 'too-large.txt'))).status).toBe(413);
     expect(await db.response.count({ where: { surveyId } })).toBe(0);
     expect(await db.attachment.count({ where: { response: { surveyId } } })).toBe(0);
+  });
+  it('normalizes JPEG trailing data before persisting and downloading an attachment', async () => {
+    const jpeg = await sharp({ create: { width: 16, height: 24, channels: 3, background: '#168878' } }).jpeg().withMetadata({ orientation: 6 }).toBuffer();
+    const submitted = await upload(new File([Buffer.concat([jpeg,Buffer.from('private trailing contents')])], 'IMG_20261020_test.jpg', { type: 'image/jpeg' }));
+    expect(submitted.status).toBe(200); const responseId = (await submitted.json()).id;
+    const files = await db.attachment.findMany({ where: { responseId } });
+    try {
+      expect(files).toHaveLength(1);
+      const downloaded = await api('/attachments/' + files[0].id);
+      expect(downloaded.status).toBe(200);
+      const data = Buffer.from(await downloaded.arrayBuffer()), metadata = await sharp(data).metadata();
+      expect(metadata).toMatchObject({ format: 'jpeg', width: 24, height: 16 });
+      expect(metadata.exif).toBeUndefined();
+      expect(data.includes(Buffer.from('private trailing contents'))).toBe(false);
+      expect(data.subarray(-2)).toEqual(Buffer.from([255,217]));
+      expect(files[0].size).toBe(data.length);
+      expect(await readFile(path.join(uploadsDirectory(),files[0].storageKey))).toEqual(data);
+    } finally {
+      await db.response.delete({ where: { id: responseId } });
+      await Promise.all(files.map(file => removeAttachment(file.storageKey)));
+    }
   });
   it('persists files, deduplicates retries, protects downloads and detects corruption', async () => {
     const key = randomUUID(), clientId = randomUUID();

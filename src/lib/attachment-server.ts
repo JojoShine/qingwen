@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import sharp from 'sharp';
 import type { AttachmentDiagnostic } from './attachment-diagnostics';
 import { attachmentError, attachmentExtension, attachmentTotalBytes, attachmentTotalFiles, type AttachmentInfo } from './attachment';
 import { officeDocumentMime } from './office-document';
@@ -64,13 +65,13 @@ function invalidFileMessage(name: string, data: Uint8Array): string {
   if (!['jpg','jpeg'].includes(attachmentExtension(name))) return '文件内容无效或与扩展名不匹配';
   const bytes = Buffer.from(data);
   if (bytes[0] !== 255 || bytes[1] !== 216 || bytes[2] !== 255) return 'JPG 文件起始标记不匹配，请重新导出图片（JPEG_HEADER）';
-  if (bytes.lastIndexOf(Buffer.from([255,217])) >= 0) return 'JPG 文件结束标记后存在附加数据，当前格式校验未通过（JPEG_TRAILING_DATA）';
+  if (bytes.lastIndexOf(Buffer.from([255,217])) >= 0) return 'JPG 图片无法完整解码，或超过安全处理限制，请重新导出图片（JPEG_DECODE）';
   return 'JPG 文件缺少结束标记，文件可能不完整（JPEG_END_MISSING）';
 }
 export async function prepareAttachments(content: Question[], input: Answers, files: Map<string, File>, diagnose?: AttachmentDiagnostic) {
   const answers = visibleAnswers(content, input);
   const attachments: (AttachmentInfo & { questionId: string; data: Uint8Array<ArrayBuffer> })[] = [];
-  const used = new Set<string>();
+  const used = new Set<string>(); let preparedBytes = 0;
   for (const question of visibleContent(content, input).filter(q => q.type === 'attachment')) {
     const ids = answers[question.id]?.value;
     const metadata: AttachmentInfo[] = [];
@@ -79,8 +80,19 @@ export async function prepareAttachments(content: Question[], input: Answers, fi
       if (!file || used.has(id)) throw new HttpError(422, '请重新选择附件', { [question.id]: '附件缺失或重复，请重新选择' });
       const error = attachmentError(file, question);
       if (error) throw new HttpError(422, error, { [question.id]: error });
-      const data = new Uint8Array(await file.arrayBuffer());
-      const mime = await detectMime(file.name, data);
+      let data = new Uint8Array(await file.arrayBuffer());
+      let mime = await detectMime(file.name, data);
+      if (['jpg','jpeg'].includes(attachmentExtension(file.name))) {
+        mime = null;
+        if (data[0] === 255 && data[1] === 216 && data[2] === 255 && Buffer.from(data).lastIndexOf(Buffer.from([255,217])) >= 0) {
+          try {
+            // Decode untrusted pixels before re-encoding; never preserve appended data or metadata.
+            const normalized = await sharp(data, { failOn: 'warning', limitInputPixels: 64_000_000 }).autoOrient().timeout({ seconds: 5 }).jpeg({ quality: 95 }).toBuffer();
+            diagnose?.('file-normalized', { receivedBytes: data.length, storedBytes: normalized.length, sourceSha256: createHash('sha256').update(data).digest('hex') });
+            data = new Uint8Array(normalized); mime = 'image/jpeg';
+          } catch { /* Reject invalid, truncated or resource-intensive JPEGs below. */ }
+        }
+      }
       if (!mime) {
         const error = invalidFileMessage(file.name, data);
         const bytes = Buffer.from(data), jpegEnd = bytes.lastIndexOf(Buffer.from([255,217]));
@@ -95,7 +107,11 @@ export async function prepareAttachments(content: Question[], input: Answers, fi
         });
         throw new HttpError(422, error, { [question.id]: error });
       }
-      const info = { id: randomUUID(), name: file.name, size: file.size, mime };
+      const normalizedError = attachmentError({ name: file.name, size: data.length }, question);
+      if (normalizedError) throw new HttpError(422, normalizedError, { [question.id]: normalizedError });
+      preparedBytes += data.length;
+      if (preparedBytes > attachmentTotalBytes) throw new HttpError(413, '处理后的附件合计不能超过 5MB，请减少文件大小后重试');
+      const info = { id: randomUUID(), name: file.name, size: data.length, mime };
       metadata.push(info); attachments.push({ ...info, questionId: question.id, data }); used.add(id);
     }
     if (Array.isArray(ids)) answers[question.id] = { value: metadata.map(file => file.id), files: metadata };

@@ -3,6 +3,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import sharp from 'sharp';
 import { writeAttachment, readAttachment, removeAttachment } from '../src/lib/attachment-storage';
 import { prepareAttachments, submissionBody } from '../src/lib/attachment-server';
 import { reserveUpload } from '../src/lib/attachment-guard';
@@ -72,28 +73,66 @@ describe('attachment input rules', () => {
     for (const [data, code] of [
       [Buffer.from('PK\x03\x04not an image'), 'JPEG_HEADER'],
       [Buffer.from([255,216,255,224,0,16]), 'JPEG_END_MISSING'],
-      [Buffer.from([255,216,255,224,255,217,0,0]), 'JPEG_TRAILING_DATA'],
+      [Buffer.from([255,216,255,224,255,217,0,0]), 'JPEG_DECODE'],
     ] as const) {
       await expect(check(data)).rejects.toMatchObject({ status: 422, message: expect.stringContaining(code), fields: { [question.id]: expect.stringContaining(code) } });
     }
   });
-  it('preserves JPEG bytes and accepts underscore filenames through multipart parsing', async () => {
-    const id = randomUUID(), data = Buffer.from([255,216,255,224,0,16,255,217]);
+  it('normalizes valid JPEGs and accepts underscore filenames through multipart parsing', async () => {
+    const id = randomUUID(), data = await sharp({ create: { width: 16, height: 24, channels: 3, background: '#168878' } }).jpeg().toBuffer();
     const answers = { [question.id]: { value: [id] } };
     const form = new FormData(); form.append('payload', JSON.stringify({ answers }));
     form.append('file:' + id, new File([data], 'IMG_20261020_001701.JPG', { type: 'application/octet-stream' }));
     const parsed = await submissionBody(new Request('http://localhost', { method: 'POST', body: form }));
     expect(parsed.payload).toEqual({ answers });
     const prepared = await prepareAttachments([question], answers, parsed.files);
-    expect(prepared.attachments[0]).toMatchObject({ name: 'IMG_20261020_001701.JPG', mime: 'image/jpeg', size: data.length });
-    expect(Buffer.from(prepared.attachments[0].data)).toEqual(data);
+    expect(prepared.attachments[0]).toMatchObject({ name: 'IMG_20261020_001701.JPG', mime: 'image/jpeg', size: prepared.attachments[0].data.length });
+    expect(await sharp(prepared.attachments[0].data).metadata()).toMatchObject({ width: 16, height: 24, format: 'jpeg' });
   });
   it('records JPEG marker diagnostics without retaining the rejected photo or its filename', async () => {
     const id = randomUUID(), diagnose = vi.fn(), data = Buffer.from([255,216,255,224,255,217,0,0]);
     await expect(prepareAttachments([question], { [question.id]: { value: [id] } }, new Map([[id, new File([data], 'private_photo.jpg', { type: 'image/jpeg' })]]), diagnose)).rejects.toMatchObject({ status: 422 });
-    expect(diagnose).toHaveBeenCalledWith('file-rejected', expect.objectContaining({ reason: 'JPEG_TRAILING_DATA', extension: 'jpg', declaredMime: 'image/jpeg', receivedBytes: 8, jpegStart: true, jpegEndAtFileEnd: false, lastJpegEndOffset: 4, trailingBytes: 2, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }));
+    expect(diagnose).toHaveBeenCalledWith('file-rejected', expect.objectContaining({ reason: 'JPEG_DECODE', extension: 'jpg', declaredMime: 'image/jpeg', receivedBytes: 8, jpegStart: true, jpegEndAtFileEnd: false, lastJpegEndOffset: 4, trailingBytes: 2, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }));
     expect(JSON.stringify(diagnose.mock.calls)).not.toContain('private_photo');
     expect(await readdir(directory)).toEqual([]);
+  });
+  it('decodes JPEGs with appended contents, preserves orientation and strips metadata and trailing data', async () => {
+    const id = randomUUID(), diagnose = vi.fn();
+    const jpeg = await sharp({ create: { width: 16, height: 24, channels: 3, background: '#168878' } }).jpeg().withMetadata({ orientation: 6 }).toBuffer();
+    const tail = Buffer.concat([Buffer.from('PK\x03\x04private appended contents'), Buffer.alloc(354_836)]);
+    const source = Buffer.concat([jpeg, tail]);
+    const prepared = await prepareAttachments([question], { [question.id]: { value: [id] } }, new Map([[id, new File([source], 'huawei.jpg')]]), diagnose);
+    const result = Buffer.from(prepared.attachments[0].data), metadata = await sharp(result).metadata();
+    expect(metadata).toMatchObject({ width: 24, height: 16, format: 'jpeg' });
+    expect(metadata.exif).toBeUndefined(); expect(metadata.xmp).toBeUndefined();
+    expect(result.subarray(-2)).toEqual(Buffer.from([255,217]));
+    expect(result.includes(Buffer.from('private appended contents'))).toBe(false);
+    expect(prepared.attachments[0].size).toBe(result.length);
+    expect(diagnose).toHaveBeenCalledWith('file-normalized', expect.objectContaining({ receivedBytes: source.length, storedBytes: result.length }));
+    await sharp(result, { failOn: 'warning' }).raw().toBuffer();
+  });
+  it('rejects renamed PNGs and truncated JPEGs rather than converting arbitrary contents', async () => {
+    const id = randomUUID(), answers = { [question.id]: { value: [id] } };
+    const jpeg = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#168878' } }).jpeg().toBuffer();
+    const png = await sharp(jpeg).png().toBuffer();
+    for (const data of [png, jpeg.subarray(0, Math.floor(jpeg.length / 2)), Buffer.concat([jpeg.subarray(0,40),Buffer.from([255,217])])]) {
+      await expect(prepareAttachments([question], answers, new Map([[id, new File([data], 'image.jpg')]]))).rejects.toMatchObject({ status: 422 });
+    }
+  });
+  it('rejects JPEG pixel bombs before decoding their declared dimensions', async () => {
+    const id = randomUUID(), jpeg = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#168878' } }).jpeg().toBuffer();
+    const frame = jpeg.indexOf(Buffer.from([255,192])); expect(frame).toBeGreaterThan(0);
+    jpeg.writeUInt16BE(10_000,frame+5); jpeg.writeUInt16BE(10_000,frame+7);
+    await expect(prepareAttachments([question], { [question.id]: { value: [id] } }, new Map([[id, new File([jpeg], 'huge.jpg')]]))).rejects.toMatchObject({ status: 422 });
+  });
+  it('keeps per-file and combined size limits after JPEG normalization', async () => {
+    const raw = Buffer.alloc(2560 * 2560 * 3); let seed = 1;
+    for (let i = 0; i < raw.length; i++) { seed = (Math.imul(seed,1664525)+1013904223) >>> 0; raw[i] = seed >>> 24; }
+    const jpeg = await sharp(raw, { raw: { width: 2560, height: 2560, channels: 3 } }).jpeg({ quality: 10 }).toBuffer();
+    expect(jpeg.length).toBeLessThan(1024 * 1024);
+    const ids = Array.from({ length: 4 }, () => randomUUID()), files = new Map(ids.map(id => [id, new File([jpeg], 'noise.jpg')]));
+    await expect(prepareAttachments([{ ...question, maxFileSizeMB: 1 }], { [question.id]: { value: [ids[0]] } }, new Map([[ids[0],files.get(ids[0])!]]))).rejects.toMatchObject({ status: 422, message: expect.stringContaining('1MB') });
+    await expect(prepareAttachments([{ ...question, maxFiles: 4 }], { [question.id]: { value: ids } }, files)).rejects.toMatchObject({ status: 413 });
   });
 });
 
