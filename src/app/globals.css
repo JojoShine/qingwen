@@ -142,6 +142,18 @@
 }
 
 
+/* Keep touch scrolling while preventing gesture zoom on questionnaire pages. */
+.public-survey{touch-action:pan-x pan-y}
+@media(max-width:700px),(pointer:coarse){
+  /* Counted textareas inherit their font size from the affix wrapper. */
+  .public-survey .public-question .ant-input-affix-wrapper,
+  .public-survey .public-question .ant-input-number,
+  .public-survey .public-question .ant-select,
+  .public-survey .public-question input,
+  .public-survey .public-question textarea,
+  .public-survey .public-question select{font-size:16px}
+}
+
 /* Mobile content fills the screen; safe areas belong to the preview shell. */
 .public-question{margin-bottom:12px;padding-top:8px;padding-bottom:8px}
 .public-question-title{margin-bottom:12px}
