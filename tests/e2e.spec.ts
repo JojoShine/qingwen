@@ -91,7 +91,10 @@ test('editor reorders by keyboard, persists templates, and warns before leaving'
   await page.request.post('/api/auth/login',{data:{username:process.env.ADMIN_USERNAME||'admin',password:process.env.ADMIN_PASSWORD}});
   const s=await(await page.request.post('/api/surveys',{data:{title:'编辑器验收问卷'}})).json();try { await page.request.patch(`/api/surveys/${s.id}`,{data:{content:[a,b]}});
   await page.goto('/surveys');await page.locator(`a[href="/surveys/${s.id}/edit"]`).first().click();
-  const handle=page.getByRole('button',{name:'拖动题目 1',exact:true});await handle.focus();await page.keyboard.press('Space');await expect(page.locator('.editor-block').first()).toHaveClass(/dragging/);await page.keyboard.press('ArrowDown');await expect(page.getByRole('status')).toContainText(`droppable area ${b.id}`);await page.keyboard.press('Space');
+  const handle=page.getByRole('button',{name:'拖动题目 1',exact:true});await handle.focus();await page.keyboard.press('Space');await expect(page.locator('.editor-block').first()).toHaveClass(/dragging/);
+  // KeyboardSensor defers its listener; wait for activation layout before moving.
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await page.keyboard.press('ArrowDown');await expect(page.getByRole('status')).toContainText(`droppable area ${b.id}`);await page.keyboard.press('Space');
   await expect(page.locator('.editor-block').first()).toHaveAttribute('data-question-id',b.id);
   await page.getByRole('tab',{name:'外观'}).click();await page.locator('.theme-grid button').filter({hasText:'日落杏色'}).click();
   await page.getByRole('link',{name:/我的问卷/}).click();await expect(page.locator('.ant-modal-confirm')).toBeVisible();
