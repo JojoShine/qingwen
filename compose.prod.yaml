@@ -16,6 +16,8 @@ services:
       TRUSTED_CLIENT_IP_HEADER: ${TRUSTED_CLIENT_IP_HEADER:-}
     volumes:
       - qingwen_data:/var/lib/postgresql/data
+      - qingwen_uploads:/var/lib/qingwen/uploads
 
 volumes:
   qingwen_data:
+  qingwen_uploads:

@@ -1,13 +1,14 @@
+import type { AttachmentInfo, AttachmentRules } from './attachment';
 import { validDateValue, type DatePrecision } from './date-question';
 
 export const questionTypes = {
   single: '单选题', multiple: '多选题', select: '下拉选择', text: '单行填空', textarea: '多行填空',
-  number: '数字题', date: '日期题', rating: '评分题', ranking: '排序题', matrixSingle: '矩阵单选', matrixMultiple: '矩阵多选', section: '分类标题',
+  number: '数字题', date: '日期题', rating: '评分题', ranking: '排序题', matrixSingle: '矩阵单选', matrixMultiple: '矩阵多选', attachment: '附件上传', section: '分类标题',
 } as const;
 export type QuestionType = keyof typeof questionTypes;
 export type Option = { id: string; label: string };
-export type Question = { id: string; type: QuestionType; title: string; description: string; required: boolean; options: Option[]; rows: Option[]; other: boolean; otherInputMode?: 'single' | 'multiline'; datePrecision?: DatePrecision; placeholder: string; min?: number; max?: number; maxLength: number; textFormat?: 'text' | 'phone' | 'email'; exclusiveOptionId?: string | null; showWhen?: { questionId: string; optionId: string } | null };
-export type Answer = { value: string | string[] | number | Record<string, string | string[]> | null; other?: string };
+export type Question = AttachmentRules & { id: string; type: QuestionType; title: string; description: string; required: boolean; options: Option[]; rows: Option[]; other: boolean; otherInputMode?: 'single' | 'multiline'; datePrecision?: DatePrecision; placeholder: string; min?: number; max?: number; maxLength: number; textFormat?: 'text' | 'phone' | 'email'; exclusiveOptionId?: string | null; showWhen?: { questionId: string; optionId: string } | null };
+export type Answer = { value: string | string[] | number | Record<string, string | string[]> | null; other?: string; files?: AttachmentInfo[] };
 export type Answers = Record<string, Answer>;
 export type SurveyData = { id: string; title: string; browserTitle?: string; description: string; status: 'DRAFT' | 'ACTIVE' | 'CLOSED'; platform: 'mobile' | 'desktop'; showBranding?: boolean; brandName?: string; brandDescription?: string; startsAt?: string | null; endsAt?: string | null; maxResponses?: number | null; browserLimit?: number | null; ipLimit?: number | null; canLimitIp?: boolean; availability?: 'NOT_STARTED' | 'ENDED' | 'FULL' | 'LIMIT_REACHED'; availabilityMessage?: string; background: string; banner: string; bannerTitle?: string | null; bannerSubtitle?: string | null; bannerImage?: string | null; content: Question[]; publishedAt: string | null; updatedAt: string; createdAt: string; shareId: string; owner?: { name: string; username: string }; _count?: { responses: number } };
 export const themes = [{ id: 'none', name: '不使用', color: '#ffffff' }, { id: 'mint', name: '清新薄荷', color: '#e5f3ef' }, { id: 'warm', name: '日落杏色', color: '#fcf0df' }, { id: 'blue', name: '晴空蔚蓝', color: '#e7effa' }, { id: 'ink', name: '简约墨色', color: '#edf0f2' }];
@@ -26,7 +27,7 @@ export function uid(): string {
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
 }
 export function newQuestion(type: QuestionType): Question {
-  return { id: uid(), type, title: type === 'section' ? '新的分类' : '请输入题目标题', description: '', required: type !== 'section', options: choiceTypes.includes(type) ? [1, 2].map(n => ({ id: uid(), label: `选项 ${n}` })) : [], rows: type.startsWith('matrix') ? [1, 2].map(n => ({ id: uid(), label: `项目 ${n}` })) : [], other: false, ...(['single','multiple'].includes(type) ? { otherInputMode: 'multiline' as const } : {}), placeholder: '', maxLength: 500, ...(type === 'rating' ? { min: 1, max: 5 } : {}) };
+  return { id: uid(), type, title: type === 'section' ? '新的分类' : '请输入题目标题', description: '', required: type !== 'section', options: choiceTypes.includes(type) ? [1, 2].map(n => ({ id: uid(), label: `选项 ${n}` })) : [], rows: type.startsWith('matrix') ? [1, 2].map(n => ({ id: uid(), label: `项目 ${n}` })) : [], other: false, ...(['single','multiple'].includes(type) ? { otherInputMode: 'multiline' as const } : {}), placeholder: '', maxLength: 500, ...(type === 'rating' ? { min: 1, max: 5 } : {}), ...(type === 'attachment' ? { fileMode: 'all' as const, maxFiles: 1, maxFileSizeMB: 10 } : {}) };
 }
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const validString = (v: unknown, max: number, nonempty = false) => typeof v === 'string' && v.length <= max && (!nonempty || v.trim().length > 0);
@@ -51,6 +52,9 @@ export function validateContent(content: unknown, publishing = true): Record<str
     if (publishing && choiceTypes.includes(q.type as QuestionType) && (!Array.isArray(q.options) || q.options.length < 2)) errors[key] = '至少需要两个选项';
     if (publishing && q.type.startsWith('matrix') && (!Array.isArray(q.rows) || !q.rows.length)) errors[key] = '矩阵至少需要一行';
     for (const field of ['min', 'max']) if (q[field] !== undefined && (typeof q[field] !== 'number' || !Number.isFinite(q[field]))) errors[key] = '范围设置无效';
+    if (q.fileMode !== undefined && (q.type !== 'attachment' || !['all','images','documents'].includes(String(q.fileMode)))) errors[key] = '附件类型设置无效';
+    if (q.maxFiles !== undefined && (q.type !== 'attachment' || !Number.isInteger(q.maxFiles) || Number(q.maxFiles) < 1 || Number(q.maxFiles) > 5)) errors[key] = '每题附件数量应为 1–5 个';
+    if (q.maxFileSizeMB !== undefined && (q.type !== 'attachment' || !Number.isInteger(q.maxFileSizeMB) || Number(q.maxFileSizeMB) < 1 || Number(q.maxFileSizeMB) > 10)) errors[key] = '单个附件大小应为 1–10MB';
     if (q.otherInputMode !== undefined && (!['single','multiline'].includes(String(q.otherInputMode)) || !['single','multiple'].includes(q.type))) errors[key] = '其他填空方式无效';
     if (q.datePrecision !== undefined && (!['date','minute','second'].includes(String(q.datePrecision)) || q.type !== 'date')) errors[key] = '日期精度设置无效';
     if (q.textFormat !== undefined && (!['text','phone','email'].includes(String(q.textFormat)) || q.type !== 'text')) errors[key] = '输入格式设置无效';
@@ -73,7 +77,7 @@ export function validateAnswers(content: Question[], input: unknown): Record<str
   for (const key of Object.keys(input)) if (!content.some(q => q.type !== 'section' && q.id === key)) errors[key] = '存在未知题目';
   for (const q of questions) {
     const raw = input[q.id];
-    if (raw !== undefined && (!record(raw) || !('value' in raw) || Object.keys(raw).some(k => !['value', 'other'].includes(k)))) { errors[q.id] = '答案格式无效'; continue; }
+    if (raw !== undefined && (!record(raw) || !('value' in raw) || Object.keys(raw).some(k => !(q.type === 'attachment' ? ['value', 'files'] : ['value', 'other']).includes(k)))) { errors[q.id] = '答案格式无效'; continue; }
     const a = raw as Answer | undefined;
     const v = a?.value;
     if (a?.other !== undefined && !validString(a.other, 5000)) { errors[q.id] = '补充文字格式无效'; continue; }
@@ -81,7 +85,7 @@ export function validateAnswers(content: Question[], input: unknown): Record<str
     const validType = v === undefined || v === null || (
       ['single', 'select', 'text', 'textarea', 'date'].includes(q.type) ? typeof v === 'string' :
       ['number', 'rating'].includes(q.type) ? typeof v === 'number' && Number.isFinite(v) :
-      ['multiple', 'ranking'].includes(q.type) ? strings(v) :
+      ['multiple', 'ranking', 'attachment'].includes(q.type) ? strings(v) :
       q.type.startsWith('matrix') && record(v) && Object.keys(v).every(id => q.rows.some(row => row.id === id)) && Object.values(v).every(cell => q.type === 'matrixSingle' ? typeof cell === 'string' : strings(cell))
     );
     if (!validType) { errors[q.id] = '答案格式无效'; continue; }
@@ -99,6 +103,7 @@ export function validateAnswers(content: Question[], input: unknown): Record<str
       case 'number': valid = typeof v === 'number' && Number.isFinite(v) && v >= (q.min ?? -Infinity) && v <= (q.max ?? Infinity); break;
       case 'date': valid = typeof v === 'string' && validDateValue(v, q.datePrecision); break;
       case 'rating': valid = typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 5; break;
+      case 'attachment': valid = strings(v) && unique(v) && v.length <= (q.maxFiles ?? 1) && v.every(id => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)); break;
       case 'ranking': valid = validMany(v) && (v as string[]).length === q.options.length; break;
       case 'matrixSingle': case 'matrixMultiple': valid = record(v) && Object.keys(v).every(id => q.rows.some(r => r.id === id)) && q.rows.every(r => q.type === 'matrixSingle' ? validChoice(v[r.id]) : validMany(v[r.id]) && (v[r.id] as string[]).length > 0); break;
     }
@@ -107,7 +112,7 @@ export function validateAnswers(content: Question[], input: unknown): Record<str
       if (q.textFormat === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())) { errors[q.id] = '请输入有效的邮箱地址'; continue; }
     }
     if (!valid) errors[q.id] = '请检查答案、选项或允许范围';
-    if (v === '__other' || (Array.isArray(v) && v.includes('__other'))) {
+    if (q.type !== 'attachment' && (v === '__other' || (Array.isArray(v) && v.includes('__other')))) {
       if (!validString(a?.other, 5000, true)) errors[q.id] = '请填写“其他”的具体内容';
     }
     if (a?.other !== undefined && !validString(a.other, 5000)) errors[q.id] = '补充文字格式无效';
@@ -119,6 +124,7 @@ export function initialAnswers(content: Question[]): Answers {
 }
 export function answerText(q: Question, a?: Answer): string {
   if (!a || a.value === null || a.value === undefined) return '—';
+  if (q.type === 'attachment') return a.files?.map(file => file.name).join('、') || (Array.isArray(a.value) && a.value.length ? `${a.value.length} 个附件` : '—');
   const label = (v: string) => v === '__other' ? `其他：${a.other || ''}` : q.options.find(o => o.id === v)?.label || v;
   if (q.type.startsWith('matrix') && record(a.value)) return q.rows.map(r => `${r.label}：${Array.isArray((a.value as Record<string, unknown>)[r.id]) ? ((a.value as Record<string, string[]>)[r.id]).map(label).join('、') : label(String((a.value as Record<string, string>)[r.id] || '—'))}`).join('\n');
   if (Array.isArray(a.value)) return a.value.map(label).join(q.type === 'ranking' ? ' → ' : '、');

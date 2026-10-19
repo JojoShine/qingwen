@@ -18,3 +18,5 @@ AGENTS.md
 *.log
 *.dump
 *.sql.gz
+
+uploads/

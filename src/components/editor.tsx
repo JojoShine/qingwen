@@ -3,7 +3,7 @@ import { withBasePath } from '@/lib/paths';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Alert, App, Button, Divider, Empty, Form, Input, InputNumber, Radio, Segmented, Skeleton, Switch, Tabs, Tag, Tooltip } from 'antd';
-import { ArrowLeftOutlined, ArrowUpOutlined, ArrowDownOutlined, CheckCircleOutlined, CopyOutlined, DeleteOutlined, DesktopOutlined, EyeOutlined, HolderOutlined, LockOutlined, MobileOutlined, PlusOutlined, SaveOutlined, SendOutlined, SettingOutlined, ShareAltOutlined, CheckSquareOutlined, DownOutlined, FontSizeOutlined, AlignLeftOutlined, NumberOutlined, CalendarOutlined, StarOutlined, SortAscendingOutlined, TableOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, ArrowUpOutlined, ArrowDownOutlined, CheckCircleOutlined, CopyOutlined, DeleteOutlined, DesktopOutlined, EyeOutlined, HolderOutlined, LockOutlined, MobileOutlined, PlusOutlined, SaveOutlined, SendOutlined, SettingOutlined, ShareAltOutlined, CheckSquareOutlined, DownOutlined, FontSizeOutlined, AlignLeftOutlined, NumberOutlined, CalendarOutlined, StarOutlined, SortAscendingOutlined, TableOutlined, PaperClipOutlined } from '@ant-design/icons';
 import { DndContext, PointerSensor, KeyboardSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -19,7 +19,7 @@ import QuestionField from './question-field';
 import SurveyPreview from './survey-preview';
 import ShareDialog from './share-dialog';
 
-const typeIcons: Record<QuestionType, ReactNode> = { single: <CheckCircleOutlined/>, multiple: <CheckSquareOutlined/>, select: <DownOutlined/>, text: <FontSizeOutlined/>, textarea: <AlignLeftOutlined/>, number: <NumberOutlined/>, date: <CalendarOutlined/>, rating: <StarOutlined/>, ranking: <SortAscendingOutlined/>, matrixSingle: <TableOutlined/>, matrixMultiple: <TableOutlined/>, section: <FontSizeOutlined/> };
+const typeIcons: Record<QuestionType, ReactNode> = { single: <CheckCircleOutlined/>, multiple: <CheckSquareOutlined/>, select: <DownOutlined/>, text: <FontSizeOutlined/>, textarea: <AlignLeftOutlined/>, number: <NumberOutlined/>, date: <CalendarOutlined/>, rating: <StarOutlined/>, ranking: <SortAscendingOutlined/>, matrixSingle: <TableOutlined/>, matrixMultiple: <TableOutlined/>, attachment: <PaperClipOutlined/>, section: <FontSizeOutlined/> };
 function Block({ q, index, number, selected, locked, count, onSelect, onMove, onCopy, onDelete }: { q: Question; index: number; number: number; selected: boolean; locked: boolean; count: number; onSelect: () => void; onMove: (to: number) => void; onCopy: () => void; onDelete: () => void }) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: q.id, disabled: locked });
   return <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 20 : undefined }} className={`editor-block ${selected ? 'selected' : ''} ${isDragging ? 'dragging' : ''}`} onClick={onSelect} data-question-id={q.id}>

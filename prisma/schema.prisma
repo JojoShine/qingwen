@@ -79,10 +79,25 @@ model Response {
   browserHash String?
   ipHash String?
   titleSnapshot String
+  attachments Attachment[]
   createdAt DateTime @default(now())
   @@unique([surveyId, submissionKey])
   @@index([surveyId, createdAt])
   @@index([surveyId, browserHash])
   @@index([surveyId, ipHash])
   @@index([surveyId, isValid, createdAt])
+}
+
+model Attachment {
+  id String @id
+  responseId String
+  response Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  questionId String
+  name String
+  mime String
+  size Int
+  storageKey String @unique
+  sha256 String
+  createdAt DateTime @default(now())
+  @@index([responseId])
 }

@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+UPLOAD_DIR=${UPLOAD_DIR:-/var/lib/qingwen/uploads}
+export UPLOAD_DIR
+install -d -m 700 -o node -g node "$UPLOAD_DIR"
+
 # Keep existing external-database deployments usable during their data migration.
 if [[ -n "${DATABASE_URL:-}" ]]; then
+  gosu node pnpm exec tsx deploy/docker/storage-check.ts
   exec gosu node "$@"
 fi
 
@@ -34,7 +39,7 @@ trap 'exit 143' TERM
 trap 'exit 130' INT
 
 # The official entrypoint initializes only an empty volume and drops to postgres.
-docker-entrypoint.sh postgres -c listen_addresses=127.0.0.1 &
+docker-entrypoint.sh postgres -c listen_addresses=127.0.0.1 >&2 &
 database_pid=$!
 ready=false
 for attempt in {1..90}; do
@@ -71,8 +76,14 @@ if [[ "${1:-}" == restore ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == backup || "${1:-}" == restore-backup ]]; then
+  run_setup qingwen-backup.sh "$1"
+  exit 0
+fi
+
 run_setup pnpm db:migrate
 run_setup pnpm db:seed
+run_setup pnpm exec tsx deploy/docker/storage-check.ts
 gosu node env -u ADMIN_PASSWORD -u POSTGRES_PASSWORD "$@" &
 application_pid=$!
 # If either service exits, stop its companion and let the container restart.

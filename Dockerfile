@@ -32,11 +32,14 @@ COPY --from=base /usr/local/bin/node /usr/local/bin/node
 COPY --from=base /usr/local/lib/node_modules/pnpm /usr/local/lib/node_modules/pnpm
 RUN ln -s ../lib/node_modules/pnpm/bin/pnpm.cjs /usr/local/bin/pnpm
 ARG NEXT_PUBLIC_BASE_PATH=
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000 NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH} POSTGRES_USER=survey POSTGRES_DB=survey
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000 NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH} POSTGRES_USER=survey POSTGRES_DB=survey UPLOAD_DIR=/var/lib/qingwen/uploads
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
 COPY --from=dependencies --chown=node:node /app/prisma ./prisma
 COPY --from=dependencies --chown=node:node /app/prisma.config.ts ./prisma.config.ts
-COPY --chown=node:node src/lib/db.ts src/lib/password.ts ./src/lib/
+COPY --chown=node:node src/lib/db.ts src/lib/password.ts src/lib/attachment-storage.ts ./src/lib/
+COPY --chown=node:node deploy/docker/storage-check.ts ./deploy/docker/
+COPY --chmod=755 deploy/docker/backup.sh /usr/local/bin/qingwen-backup.sh
+RUN install -d -m 700 -o node -g node /var/lib/qingwen/uploads
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --chown=node:node LICENSE ./LICENSE

@@ -15,6 +15,7 @@ export function PublicSurveyLoader({ shareId }: { shareId: string }) {
 }
 export default function PublicSurvey({ survey, preview = false }: { survey: SurveyData; preview?: boolean }) {
   const [answers, setAnswers] = useState<Answers>(() => visibleAnswers(survey.content || [], initialAnswers(survey.content || []))), [errors, setErrors] = useState<Record<string,string>>({}), [submitting, setSubmitting] = useState(false), [done, setDone] = useState(false), [failure, setFailure] = useState('');
+  const [files, setFiles] = useState<Record<string, File>>({});
   const key = useRef<string | null>(null); const { message } = App.useApp();
   useEffect(() => { if (!preview) document.title = survey.browserTitle?.trim() || survey.title; }, [preview, survey.browserTitle, survey.title]);
   if (survey.status === 'CLOSED' && !preview) return <div className="public-state"><Result icon={<span className="public-end-icon"><LockOutlined/></span>} title="问卷已结束" subTitle={`「${survey.title}」已停止收集，感谢你的关注。`}/><BrandFooter survey={survey}/></div>;
@@ -28,13 +29,26 @@ export default function PublicSurvey({ survey, preview = false }: { survey: Surv
     if (Object.keys(validation).length) { const first = Object.keys(validation)[0]; document.getElementById(`question-${first}`)?.scrollIntoView({ behavior:'smooth',block:'center' }); message.warning('请检查未完成的题目'); return; }
     if (preview) { message.success('预览校验通过，正式发布后即可提交答卷'); return; }
     setSubmitting(true);
-    try { key.current ||= uid(); await api(`/public/${survey.shareId}`, { method:'POST',body:JSON.stringify({submissionKey:key.current,answers:visibleAnswers(survey.content,answers)}) }); setDone(true); window.scrollTo({top:0,behavior:'smooth'}); }
+    try {
+      key.current ||= uid();
+      const selected = visibleAnswers(survey.content, answers);
+      const payload = JSON.stringify({ submissionKey: key.current, answers: selected });
+      const ids = visibleContent(survey.content, answers).filter(q => q.type === 'attachment').flatMap(q => Array.isArray(selected[q.id]?.value) ? selected[q.id].value as string[] : []);
+      let body: string | FormData = payload;
+      if (ids.length) {
+        const form = new FormData(); form.append('payload', payload);
+        for (const id of ids) { if (!files[id]) throw new Error('附件已失效，请重新选择'); form.append(`file:${id}`, files[id], files[id].name); }
+        body = form;
+      }
+      await api(`/public/${survey.shareId}`, { method: 'POST', body });
+      setFiles({}); setDone(true); window.scrollTo({top:0,behavior:'smooth'});
+    }
     catch(e) { if (e instanceof ApiError && e.fields) setErrors(e.fields); setFailure((e as Error).message); }
     finally { setSubmitting(false); }
   };
   let n=0;
   return <div className={`public-survey bg-${survey.background} ${preview?'is-preview':''}`}><div className={`public-sheet public-${survey.platform}`}><Banner theme={survey.banner} title={survey.bannerTitle} subtitle={survey.bannerSubtitle} image={survey.bannerImage}/><div className="public-sheet-content"><div className="public-intro"><span className="public-kicker">一份问卷 · 一次倾听</span><h1>{survey.title}</h1>{survey.description&&<p>{survey.description}</p>}<div className="public-form-meta"><span>{questions.length} 道题目</span><span>标记 <em>*</em> 为必答题</span><span><LockOutlined/> 安心填写</span></div></div><div className="form-progress"><span>填写进度 <b>{completed} / {questions.length}</b></span><Progress percent={questions.length?Math.round(completed/questions.length*100):0} showInfo={false} strokeColor="#168878" size="small"/></div>{content.map(q=>{
     if(q.type==='section')return <div className="section-heading public-section" key={q.id}>{q.title}{q.description&&<p>{q.description}</p>}</div>;
-    n++;return <section key={q.id} id={`question-${q.id}`} className={'public-question '+(errors[q.id]?'has-error':'')}><div className="public-question-title"><span className="question-number">{String(n).padStart(2,'0')}</span><h2>{q.title}{q.required&&<em>*</em>}</h2></div>{q.description&&<p className="question-description">{q.description}</p>}<QuestionField question={q} answer={answers[q.id]} disabled={submitting} onChange={answer=>{setAnswers(prev=>{const next={...prev,[q.id]:answer};return visibleAnswers(survey.content,{...initialAnswers(visibleContent(survey.content,next)),...next});});if(errors[q.id])setErrors(prev=>{const next={...prev};delete next[q.id];return next;});}}/>{errors[q.id]&&<p className="field-error" role="alert">{errors[q.id]}</p>}</section>;
-  })}{failure&&<Alert type="error" title={failure} showIcon style={{marginBottom:20}}/>}<div className="public-submit"><Button type="primary" size="large" block loading={submitting} onClick={submit}>提交问卷 <ArrowRightOutlined/></Button><p>感谢你的时间与真诚反馈</p></div></div></div><BrandFooter survey={survey}/>{preview&&<div className="preview-badge">预览模式 · 不会保存答卷</div>}</div>;
+    n++;return <section key={q.id} id={`question-${q.id}`} className={'public-question '+(errors[q.id]?'has-error':'')}><div className="public-question-title"><span className="question-number">{String(n).padStart(2,'0')}</span><h2>{q.title}{q.required&&<em>*</em>}</h2></div>{q.description&&<p className="question-description">{q.description}</p>}<QuestionField question={q} answer={answers[q.id]} disabled={submitting} files={files} onFilesChange={setFiles} onChange={answer=>{const next={...answers,[q.id]:answer};const visible=visibleAnswers(survey.content,{...initialAnswers(visibleContent(survey.content,next)),...next});setAnswers(visible);const kept=new Set(survey.content.filter(item=>item.type==='attachment').flatMap(item=>Array.isArray(visible[item.id]?.value)?visible[item.id].value as string[]:[]));setFiles(prev=>Object.fromEntries(Object.entries(prev).filter(([id])=>kept.has(id))));if(errors[q.id])setErrors(prev=>{const next={...prev};delete next[q.id];return next;});}}/>{errors[q.id]&&<p className="field-error" role="alert">{errors[q.id]}</p>}</section>;
+  })}{failure&&<Alert type="error" title={failure} showIcon style={{marginBottom:20}}/>}<div className="public-submit">{submitting && Object.keys(files).length > 0 && <p role="status">正在上传附件并保存答卷，请勿关闭页面…</p>}<Button type="primary" size="large" block loading={submitting} onClick={submit}>提交问卷 <ArrowRightOutlined/></Button><p>感谢你的时间与真诚反馈</p></div></div></div><BrandFooter survey={survey}/>{preview&&<div className="preview-badge">预览模式 · 不会保存答卷</div>}</div>;
 }

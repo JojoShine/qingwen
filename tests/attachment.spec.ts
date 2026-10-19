@@ -1,0 +1,46 @@
+import { test, expect } from '@playwright/test';
+import { newQuestion } from '../src/lib/survey';
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aV1cAAAAASUVORK5CYII=', 'base64');
+test('attachments work in phone preview, mobile file selection and desktop drag and drop', async ({ page, browser }) => {
+  expect((await page.request.post('/api/auth/login', { data: { username: process.env.ADMIN_USERNAME || 'admin', password: process.env.ADMIN_PASSWORD } })).ok()).toBe(true);
+  const survey = await (await page.request.post('/api/surveys', { data: { title: '附件体验验收' } })).json();
+  const question = { ...newQuestion('attachment'), title: '上传相关材料', maxFiles: 2 };
+  const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  try {
+    expect((await page.request.patch(`/api/surveys/${survey.id}`, { data: { content: [question] } })).ok()).toBe(true);
+    await page.goto(`/surveys/${survey.id}/edit`);
+    await page.getByRole('button', { name: /预览/ }).click();
+    const frame = page.frameLocator('iframe[title="手机问卷预览"]');
+    await frame.getByLabel('上传相关材料：选择附件', { exact: true }).setInputFiles({ name: 'preview.txt', mimeType: 'text/plain', buffer: Buffer.from('preview') });
+    await expect(frame.getByText('preview.txt', { exact: true })).toBeVisible();
+    await frame.getByRole('button', { name: '提交问卷' }).click();
+    await expect(frame.getByText('预览校验通过，正式发布后即可提交答卷')).toBeVisible();
+    expect((await (await page.request.get(`/api/surveys/${survey.id}`)).json())._count.responses).toBe(0);
+    await page.getByRole('dialog', { name: '问卷预览' }).locator('.ant-modal-close').click();
+    expect((await page.request.post(`/api/surveys/${survey.id}/action`, { data: { action: 'publish' } })).ok()).toBe(true);
+    const phone = await mobile.newPage(); await phone.goto(`/s/${survey.shareId}`);
+    await expect(phone.getByRole('button', { name: /相册$/ })).toBeVisible();
+    await expect(phone.getByRole('button', { name: /拍照$/ })).toBeVisible();
+    await expect(phone.getByLabel('上传相关材料：拍照', { exact: true })).toHaveAttribute('capture', 'environment');
+    await phone.getByLabel('上传相关材料：选择照片', { exact: true }).setInputFiles({ name: 'photo.png', mimeType: 'image/png', buffer: png });
+    await expect(phone.getByText('photo.png', { exact: true })).toBeVisible();
+    expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await phone.screenshot({ path: 'artifacts/attachments/mobile.png', fullPage: true });
+    await phone.getByRole('button', { name: '提交问卷' }).click(); await expect(phone.getByRole('heading', { name: '提交成功，感谢你的参与' })).toBeVisible();
+    await page.goto(`/s/${survey.shareId}`);
+    await page.getByRole('group', { name: '上传相关材料：附件选择区' }).dispatchEvent('drop', { dataTransfer: await page.evaluateHandle(() => { const data = new DataTransfer(); data.items.add(new File(['desktop document'], 'desktop.txt', { type: 'text/plain' })); return data; }) });
+    await expect(page.getByText('desktop.txt', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '提交问卷' }).click(); await expect(page.getByRole('heading', { name: '提交成功，感谢你的参与' })).toBeVisible();
+    expect((await (await page.request.get(`/api/surveys/${survey.id}`)).json())._count.responses).toBe(2);
+    expect((await page.request.patch(`/api/surveys/${survey.id}`, { data: { platform: 'desktop' } })).ok()).toBe(true);
+    await phone.reload();
+    await expect(phone.locator('.public-desktop')).toBeVisible();
+    expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.goto(`/surveys/${survey.id}/results`);
+    await page.getByRole('tab', { name: /原始答卷/ }).click();
+    await page.getByRole('button', { name: '查看答卷' }).first().click();
+    await expect(page.locator('.response-details').getByText('desktop.txt', { exact: true })).toBeVisible();
+    const download = page.waitForEvent('download'); await page.getByRole('link', { name: '下载附件 desktop.txt' }).click();
+    expect((await download).suggestedFilename()).toBe('desktop.txt');
+  } finally { await mobile.close(); await page.request.delete(`/api/surveys/${survey.id}`); }
+});

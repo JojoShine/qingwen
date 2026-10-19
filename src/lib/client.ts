@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { withBasePath } from '@/lib/paths';
 export class ApiError extends Error { constructor(message: string, public status: number, public fields?: Record<string, string>) { super(message); } }
 export async function api<T = unknown>(url: string, options: RequestInit = {}): Promise<T> {
-  const r = await fetch(withBasePath('/api' + url), { ...options, headers: { 'Content-Type': 'application/json', ...options.headers } });
+  const r = await fetch(withBasePath('/api' + url), { ...options, headers: options.body instanceof FormData ? options.headers : { 'Content-Type': 'application/json', ...options.headers } });
+  if (options.body instanceof FormData && r.status === 413) throw new ApiError('附件超过服务器请求上限，请减少文件大小后重试', 413);
   const result = await r.json();
   if (!r.ok) { if (r.status === 401 && !url.startsWith('/auth/login') && !url.startsWith('/public/')) window.location.assign(withBasePath('/login')); throw new ApiError(result.error || '请求失败，请重试', r.status, result.fields); }
   return result as T;

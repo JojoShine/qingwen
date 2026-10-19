@@ -27,7 +27,7 @@ export default function AppearanceSettings({ survey, onChange, onPlatformChange 
     <Divider/>
     <h4>填写平台</h4>
     <Radio.Group value={survey.platform} onChange={e => { onChange({ platform: e.target.value }); onPlatformChange(e.target.value); }}><Radio value="mobile">移动端</Radio><Radio value="desktop">PC 端</Radio></Radio.Group>
-    <p className="field-hint">移动端按手机宽度显示，PC 端使用宽版布局。</p>
+    <p className="field-hint">两种设置都支持手机和 PC 填写。移动端优先保持紧凑宽度，PC 端优先采用宽版布局，小屏幕均自动适配。</p>
     <Divider/>
     <div className="property-switch"><span>显示底部品牌信息</span><Switch aria-label="显示底部品牌信息" checked={survey.showBranding !== false} onChange={showBranding => onChange({ showBranding })}/></div>
     <p className="field-hint">控制问卷底部品牌信息的显示，关闭后仍会保留文案。</p>

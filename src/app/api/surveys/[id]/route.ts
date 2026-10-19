@@ -6,6 +6,7 @@ import { body, handle, HttpError } from '@/lib/http';
 import { jsonValue, lockSurvey, ownedSurvey } from '@/lib/service';
 import { decodeBannerImage } from '@/lib/banner-image';
 import { canLimitIp } from '@/lib/collection';
+import { removeAttachment } from '@/lib/attachment-storage';
 import { validateContent } from '@/lib/survey';
 const limit = z.number().int().min(1).max(1000000).nullable().optional();
 const schema = z.object({ startsAt: z.string().datetime({ offset: true }).nullable().optional(), endsAt: z.string().datetime({ offset: true }).nullable().optional(), maxResponses: limit, browserLimit: limit, ipLimit: limit, title: z.string().trim().min(1, '请输入问卷名称').max(100).optional(), browserTitle: z.string().trim().max(100).optional(), description: z.string().max(2000).optional(), showBranding: z.boolean().optional(), brandName: z.string().max(40).optional(), brandDescription: z.string().max(120).optional(), platform: z.enum(['mobile','desktop']).optional(), background: z.enum(['none','mint','warm','blue','ink']).optional(), banner: z.enum(['none','mint','warm','blue','ink','custom']).optional(), bannerTitle: z.string().max(60).nullable().optional(), bannerSubtitle: z.string().max(80).nullable().optional(), bannerImage: z.string().max(700000).refine(v => !!decodeBannerImage(v), '请选择有效的 PNG、JPG 或 WebP 图片（压缩后不超过 512KB）').nullable().optional(), content: z.array(z.unknown()).max(100).optional() });
@@ -27,5 +28,11 @@ export function PATCH(req: Request, ctx: Context) { return handle(req, async () 
 }); }
 export function DELETE(req: Request, ctx: Context) { return handle(req, async () => {
   const user = await requireUser(); const { id } = await ctx.params;
-  return db.$transaction(async tx => { await lockSurvey(tx, id); await ownedSurvey(user, id, tx); await tx.survey.delete({ where: { id } }); return { ok: true }; });
+  const files = await db.$transaction(async tx => {
+    await lockSurvey(tx, id); await ownedSurvey(user, id, tx);
+    const files = await tx.attachment.findMany({ where: { response: { surveyId: id } }, select: { storageKey: true } });
+    await tx.survey.delete({ where: { id } }); return files;
+  });
+  for (const file of files) { try { await removeAttachment(file.storageKey); } catch (error) { console.error('[attachment delete]', error); } }
+  return { ok: true };
 }); }

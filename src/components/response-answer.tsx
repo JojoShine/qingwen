@@ -1,11 +1,13 @@
 'use client';
 import { Rate } from 'antd';
+import ResponseAttachments from './response-attachments';
 import { CheckCircleFilled } from '@ant-design/icons';
 import { answerText, ratingLabels, type Answer, type Question } from '@/lib/survey';
 
 export default function ResponseAnswer({ question: q, answer }: { question: Question; answer?: Answer }) {
   const value = answer?.value;
   const empty = value == null || value === '' || (Array.isArray(value) && !value.length);
+  if (q.type === 'attachment') return <ResponseAttachments files={answer?.files || []}/>;
   if (q.type === 'rating') {
     const stars = Number(value);
     return empty ? <p className="response-empty">未作答</p> : <div className="response-rating" aria-label={`${stars} 星，${ratingLabels[stars - 1]}`}><Rate disabled value={stars}/><strong>{ratingLabels[stars - 1]}</strong><span>{stars} / 5 星</span></div>;

@@ -38,7 +38,9 @@ test('create, edit, publish, respond, inspect and close a survey', async ({ page
   await expect(page).toHaveURL(/\/surveys$/);
   await page.getByPlaceholder('搜索问卷名称').fill('自动化验收问卷');
   await page.getByRole('button', { name: '更多操作' }).first().click();
+  const closed = page.waitForResponse(response => response.url().endsWith(`/api/surveys/${createdId}/action`) && response.request().method() === 'POST');
   await page.getByText('结束收集', { exact: true }).click();
+  expect((await closed).ok()).toBe(true);
   await form.reload();
   await expect(form.getByText('问卷已结束')).toBeVisible();
   await guest.close();await page.request.delete(`/api/surveys/${createdId}`);

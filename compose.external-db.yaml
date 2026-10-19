@@ -27,6 +27,11 @@ services:
       DEMO_USERNAME: ${DEMO_USERNAME:-}
       DEMO_PASSWORD: ${DEMO_PASSWORD:-}
       TRUSTED_CLIENT_IP_HEADER: ${TRUSTED_CLIENT_IP_HEADER:-}
+    volumes:
+      - qingwen_uploads:/var/lib/qingwen/uploads
     depends_on:
       migrate:
         condition: service_completed_successfully
+
+volumes:
+  qingwen_uploads:

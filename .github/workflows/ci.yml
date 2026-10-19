@@ -178,10 +178,26 @@ jobs:
             if (process.env.CHECK_CREATE === '1') {
               const created = await fetch(base + '/api/surveys', { method: 'POST', headers, body: JSON.stringify({ title }) });
               assert(created.ok, 'Survey must be created in embedded PostgreSQL');
+              const survey = await created.json();
+              const id = crypto.randomUUID();
+              const question = { id, type: 'attachment', title: 'CI attachment', description: '', required: true, options: [], rows: [], other: false, placeholder: '', maxLength: 500, fileMode: 'all', maxFiles: 1, maxFileSizeMB: 10 };
+              assert((await fetch(base + '/api/surveys/' + survey.id, { method: 'PATCH', headers, body: JSON.stringify({ content: [question] }) })).ok);
+              assert((await fetch(base + '/api/surveys/' + survey.id + '/action', { method: 'POST', headers, body: JSON.stringify({ action: 'publish' }) })).ok);
+              const fileId = crypto.randomUUID(), form = new FormData();
+              form.append('payload', JSON.stringify({ submissionKey: crypto.randomUUID(), answers: { [id]: { value: [fileId] } } }));
+              form.append('file:' + fileId, new File(['persisted attachment contents'], 'ci-attachment.txt', { type: 'text/plain' }));
+              assert((await fetch(base + '/api/public/' + survey.shareId, { method: 'POST', headers: { Origin: origin }, body: form })).ok);
             }
             const surveys = await fetch(base + '/api/surveys', { headers });
             assert(surveys.ok, 'Authenticated database query must succeed');
-            assert((await surveys.json()).items.some(item => item.title === title), 'Survey must survive container recreation and backup recovery');
+            const survey = (await surveys.json()).items.find(item => item.title === title);
+            assert(survey, 'Survey must survive container recreation and backup recovery');
+            const results = await (await fetch(base + '/api/surveys/' + survey.id + '/results', { headers })).json();
+            assert.equal(results.items.length, 1);
+            const attachment = Object.values(results.items[0].answers)[0].files[0];
+            const downloaded = await fetch(base + '/api/attachments/' + attachment.id, { headers });
+            assert(downloaded.ok, 'Attachment must survive container recreation and backup recovery');
+            assert.equal(await downloaded.text(), 'persisted attachment contents');
             console.log('Embedded database login and persisted survey verified');
           })().catch(error => { console.error(error); process.exit(1); });
           NODE
@@ -194,9 +210,10 @@ jobs:
           docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml down
           ADMIN_PASSWORD=ShouldNotOverwrite123 docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml up -d --no-build --wait app
           docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml exec -T app node < /tmp/qingwen-image-check.cjs
-          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml exec -T app pg_dump -U survey -d survey -Fc > /tmp/qingwen-image.dump
+          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml stop app
+          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml run --rm --no-deps -T app backup > /tmp/qingwen-image-backup.tar
           docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml down -v
-          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml run --rm --no-deps -T app restore < /tmp/qingwen-image.dump
+          docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml run --rm --no-deps -T app restore-backup < /tmp/qingwen-image-backup.tar
           docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml up -d --no-build --wait app
           docker compose -p qingwen-image-ci --env-file /dev/null -f compose.prod.yaml exec -T app node < /tmp/qingwen-image-check.cjs
       - name: Container diagnostics
