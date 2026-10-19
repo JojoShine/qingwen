@@ -515,15 +515,15 @@ docker build --target runner --build-arg NEXT_PUBLIC_BASE_PATH=/surveys -t qingw
 
 ## 附录：当前正式环境
 
-当前版本于 **2026-10-19 21:56（Asia/Shanghai）** 部署，并于 **21:58** 完成验收。以下信息已通过运行容器及 `/opt/qingwen/release.json` 核对：
+当前版本于 **2026-10-20 01:18（Asia/Shanghai）** 部署，并完成下述服务器验收。以下信息已通过运行容器及 `/opt/qingwen/release.json` 核对：
 
 | 项目 | 当前实际配置 |
 | --- | --- |
 | 入口 | `https://tbtparent.me/surveys/login` |
 | 部署目录与文件 | `/opt/qingwen`；`compose.prod.yaml`、`.env.docker` |
 | Compose 项目 / 服务 / 容器 | `qingwen` / `app` / `qingwen-app-1`，一个业务容器 |
-| 当前应用版本 | 提交 `45aa4b4bda26e625c9e86f99d2a90059304cc0b4`，`/surveys` 变体；包含附件数量提示澄清、多行输入框字数统计间距修复及键盘拖拽测试时序修正 |
-| 实际运行镜像 | `ghcr.io/jojoshine/qingwen:sha-45aa4b4bda26e625c9e86f99d2a90059304cc0b4-surveys` |
+| 当前应用版本 | 提交 `406589dac91604dcdef39ce0186ce6125649f51f`，`/surveys` 变体；包含移动端输入缩放修复、附件诊断日志及带尾部附加数据的 JPG 安全标准化修复 |
+| 实际运行镜像 | `ghcr.io/jojoshine/qingwen:sha-406589dac91604dcdef39ce0186ce6125649f51f-surveys` |
 | 数据库 | 内置 PostgreSQL 17，库名及角色为 `survey`，未使用外部 `DATABASE_URL` |
 | 数据库卷 | `qingwen_qingwen_data` → `/var/lib/postgresql/data`，沿用原卷 |
 | 附件卷 | `qingwen_qingwen_uploads` → `/var/lib/qingwen/uploads`，沿用原卷 |
@@ -531,7 +531,7 @@ docker build --target runner --build-arg NEXT_PUBLIC_BASE_PATH=/surveys -t qingw
 | 独立 Nginx 配置 | `/etc/nginx/business/tbtparent.me/qingwen.conf`，本次未修改 |
 | 上传上限 | 每题按设置最多 5 个，整份答卷的图片和附件合计最多 10 个；整个请求最多 5MiB（含表单），Nginx 保持 `client_max_body_size 5m` |
 | 发布记录 | `/opt/qingwen/release.json` |
-| 本次升级前完整备份 | `/opt/qingwen/backups/20261019T135629Z-45aa4b4-textarea-spacing/` |
+| 本次升级前完整备份 | `/opt/qingwen/backups/20261019T171753Z-406589d-jpeg-normalization/` |
 
 ### 本次备份与数据核对
 
@@ -540,28 +540,31 @@ docker build --target runner --build-arg NEXT_PUBLIC_BASE_PATH=/surveys -t qingw
 - `qingwen-backup.tar`、`qingwen-backup.tar.sha256`：完整备份及外层 SHA-256；归档内为 `database.dump`、`uploads.tar` 和 `SHA256SUMS`，内外校验均通过。
 - `.env.docker`、`compose.prod.yaml`、`qingwen.nginx.conf`、`release.json`：升级前的配置和发布记录。
 - `image-metadata.json`、`release.deployed.json`：本次镜像摘要及更新后的上线、验收记录。
-- `backup.log`、`stop.log`、`start.log`、`qingwen-spacing-pull.log`、`qingwen-spacing-import.log`：备份、切换及镜像传输日志。
+- `backup.log`、`stop.log`、`start.log`：备份及服务切换日志。
+- `ci-verification.json`、`ci-checks.log`：本次 CI 和镜像发布结果及测试日志。
+- `jpeg-normalization-smoke.json`、`diagnostic-smoke.json`：服务器中的 JPG 标准化和诊断编号日志关联验证结果。
 
-升级前后均为 **2 个用户、4 份问卷、1 份答卷、0 个附件记录**，数据库卷与附件卷映射一致。这次仅核对了升级前后的记录数量和卷映射，没有重新执行历史版本的逐行恢复审计。完整归档的内部校验和、外层校验和以及镜像启动时的附件完整性检查均通过。目录时间戳使用 UTC，与北京时间相差 8 小时。
+升级前后均为 **2 个用户、4 份问卷、3 份答卷、2 个附件记录**，数据库卷与附件卷映射一致。本次核对了升级前后的记录数量和卷映射，没有重新执行历史版本的逐行恢复审计。完整归档的内部校验和、外层校验和以及镜像启动时的附件完整性检查均通过。目录时间戳使用 UTC，与北京时间相差 8 小时。
 
 这些备份当前保存在同一台服务器，**尚未配置异机定时备份**；不能据此声称已能抵御整盘故障。备份及环境文件含业务数据或凭据，仅保存在受限目录，不提交到 Git。
 
 ### 当前 GHCR 镜像与验收
 
-[本次 CI 与镜像发布](https://github.com/JojoShine/qingwen/actions/runs/39260145261)全部成功后才部署此固定版本，包括生产构建、单元/接口检查、浏览器检查，以及根路径和 `/surveys` 两个镜像的容器重建、附件持久化和完整备份恢复验证。
+[本次 CI 与镜像发布](https://github.com/JojoShine/qingwen/actions/runs/39291247138)全部成功后才部署此固定版本，包括生产构建、111 项单元/接口测试、20 项浏览器测试，以及根路径和 `/surveys` 两个镜像的容器重建、附件持久化和完整备份恢复验证。
 
 正式部署后的核对结果：
 
 - 容器健康，内部 `/surveys/login` 与正式 HTTPS 登录页均返回 HTTP 200。
-- 正式域名返回的新 CSS 包含多行输入框字数统计的留白规则；使用该 CSS 在 390px 手机宽度和 1280px PC 宽度的浏览器布局中核对，字数统计与下方分类标题相距 22px，均无横向溢出。
-- 数据库、附件卷映射、Compose 文件和 Nginx 配置均保持不变；附件数量、大小和类型规则未改动。
+- 新镜像包含 JPG 完整解码和标准化处理。在服务器内使用带尾部附加内容的合成 JPG 样例验证：处理后的图片可完整解码，方向正确，元数据与尾部附加内容均被移除；此测试不写入业务数据。真实鸿蒙微信上传复测由用户后续进行。
+- 故意提交无效表单得到带诊断编号的拒绝响应，同一编号可在应用日志中找到；未产生新答卷或附件。
+- 数据库、附件卷映射、Compose 文件和 Nginx 配置均保持不变；原有附件数量、单文件大小及 5MiB 请求上限保留，处理后的文件也检查大小限制。
 
-本次 GHCR 直连下载超时，按官方索引摘要从 `ghcr.nju.edu.cn` 获取相同镜像内容；其中一个镜像层通过独立下载校验后，由仅绑定服务器 `127.0.0.1` 的临时传输桥接交给 Docker。索引、镜像配置、提交标识和 `/surveys` 构建路径均已核对，桥接完成后关闭，临时镜像别名及下载文件已清理。正式配置仍使用上表中的官方 GHCR 地址，没有在服务器构建镜像，也未修改系统 DNS 或 Docker 配置。核验值为：
+本次 GHCR 直连下载未在限定时间内完成，按既有授权从同摘要镜像副本获取内容，通过仅绑定服务器 `127.0.0.1` 的临时传输桥接交给 Docker。镜像内容按官方摘要校验，索引、镜像配置、提交标识和 `/surveys` 构建路径均已核对；桥接完成后关闭，临时镜像别名已清理。正式配置仍使用上表中的官方 GHCR 地址，没有在服务器构建镜像，也未修改系统 DNS 或 Docker 配置。核验值为：
 
 ```text
-GHCR 镜像索引：sha256:a2b70f6538adb7a838e6f822a71eeda567c6cdee178739d3e7bc4682ace618fd
-linux/amd64 平台 manifest：sha256:a5908f0ea16f1932b8f082dd628e54908122f562371a145b84129b2ce186a74a
-linux/amd64 镜像配置：sha256:cde2b91ca7db547cea20acc64ab919ab37b92aaccde5b6ac458b0dc490d80061
+GHCR 镜像索引：sha256:e73b3cd5e1cedc302a94350cff07185fd107762e626791c26051f3e25498a74b
+linux/amd64 平台 manifest：sha256:72d1ca4fbe6ab6daff9efb5f7008a23f909492e56b883a84fe7e506cd960397f
+linux/amd64 镜像配置：sha256:38395a39a54704d0399b7ffcc215673319d3dcd7d4b8a6b1647f4f35032dd88f
 ```
 
 任何其他镜像副本都必须单独核对官方摘要；索引摘要与镜像配置 Id 属于不同对象，不能互相比较。文档提交不会自动更新正式容器，正式版本以 `release.json` 和运行容器为准，不能用 `latest` 推断。
@@ -580,6 +583,7 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ### 历史发布记录
 
+- **2026-10-19 21:56 多行输入框间距修复**：提交 `45aa4b4bda26e625c9e86f99d2a90059304cc0b4`，备份 `/opt/qingwen/backups/20261019T135629Z-45aa4b4-textarea-spacing/`；包含附件数量提示澄清、字数统计留白及键盘拖拽测试时序修正。
 - **2026-10-19 21:03 附件数量提示澄清**：提交 `94ae314d37605765f3480cfa70f0974557b10768`，备份 `/opt/qingwen/backups/20261019T130332Z-94ae314-attachment-hint/`；只澄清每题与整份答卷的数量提示，上传规则未改动。
 - **2026-10-19 20:06 附件功能与上传安全限制**：提交 `d9c2458df7b9072395d55720e328e103bfdddacc`，完整备份 `/opt/qingwen/backups/20261019T120550Z-d9c2458-attachments/`；该次完成隔离恢复、原数据逐行核对，以及附件上传、预览、下载和非法文件拒绝验收。首次在线备份另存于 `/opt/qingwen/backups/20261019T113645Z-340ab71-attachments/`。新增迁移 `202610190001_response_attachments` 在该次执行，Nginx 上传上限由 `2m` 调整为 `5m`。
 - **2026-10-18 黑白二维码与中心 Logo**：应用提交 `d115927cd777576f9d74f86ca23d82854b2e420e`，备份 `/opt/qingwen/backups/20261017T172943Z-d115927-qr-logo/`；该目录仍保留二维码浏览器、解码及并发写入核对记录。
