@@ -1,4 +1,5 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import type { AttachmentDiagnostic } from './attachment-diagnostics';
 import { attachmentError, attachmentExtension, attachmentTotalBytes, attachmentTotalFiles, type AttachmentInfo } from './attachment';
 import { officeDocumentMime } from './office-document';
 import { body, HttpError } from './http';
@@ -59,7 +60,14 @@ async function detectMime(name: string, data: Uint8Array): Promise<string | null
   if (['docx','xlsx','pptx'].includes(ext) && signature([80,75,3,4])) return officeDocumentMime(bytes, ext);
   return null;
 }
-export async function prepareAttachments(content: Question[], input: Answers, files: Map<string, File>) {
+function invalidFileMessage(name: string, data: Uint8Array): string {
+  if (!['jpg','jpeg'].includes(attachmentExtension(name))) return '文件内容无效或与扩展名不匹配';
+  const bytes = Buffer.from(data);
+  if (bytes[0] !== 255 || bytes[1] !== 216 || bytes[2] !== 255) return 'JPG 文件起始标记不匹配，请重新导出图片（JPEG_HEADER）';
+  if (bytes.lastIndexOf(Buffer.from([255,217])) >= 0) return 'JPG 文件结束标记后存在附加数据，当前格式校验未通过（JPEG_TRAILING_DATA）';
+  return 'JPG 文件缺少结束标记，文件可能不完整（JPEG_END_MISSING）';
+}
+export async function prepareAttachments(content: Question[], input: Answers, files: Map<string, File>, diagnose?: AttachmentDiagnostic) {
   const answers = visibleAnswers(content, input);
   const attachments: (AttachmentInfo & { questionId: string; data: Uint8Array<ArrayBuffer> })[] = [];
   const used = new Set<string>();
@@ -73,7 +81,20 @@ export async function prepareAttachments(content: Question[], input: Answers, fi
       if (error) throw new HttpError(422, error, { [question.id]: error });
       const data = new Uint8Array(await file.arrayBuffer());
       const mime = await detectMime(file.name, data);
-      if (!mime) throw new HttpError(422, '文件内容与扩展名不匹配，请选择有效文件', { [question.id]: '文件内容无效或与扩展名不匹配' });
+      if (!mime) {
+        const error = invalidFileMessage(file.name, data);
+        const bytes = Buffer.from(data), jpegEnd = bytes.lastIndexOf(Buffer.from([255,217]));
+        diagnose?.('file-rejected', {
+          reason: error.match(/（(JPEG_[A-Z_]+)）/)?.[1] || 'FILE_CONTENT_MISMATCH',
+          extension: attachmentExtension(file.name), declaredMime: file.type.slice(0,128),
+          receivedBytes: data.length, partBytes: file.size, sha256: createHash('sha256').update(data).digest('hex'),
+          jpegStart: bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255,
+          jpegEndAtFileEnd: bytes.at(-2) === 255 && bytes.at(-1) === 217,
+          lastJpegEndOffset: jpegEnd, trailingBytes: jpegEnd >= 0 ? data.length - jpegEnd - 2 : null,
+          isoBaseMedia: bytes.toString('ascii',4,8) === 'ftyp',
+        });
+        throw new HttpError(422, error, { [question.id]: error });
+      }
       const info = { id: randomUUID(), name: file.name, size: file.size, mime };
       metadata.push(info); attachments.push({ ...info, questionId: question.id, data }); used.add(id);
     }

@@ -66,6 +66,35 @@ describe('attachment input rules', () => {
     const parsed = await submissionBody(new Request('http://localhost', { method: 'POST', body: valid }));
     expect(parsed.files.get(id)?.name).toBe('x.txt');
   });
+  it('distinguishes JPEG rejection reasons without accepting renamed or altered files', async () => {
+    const id = randomUUID(), answers = { [question.id]: { value: [id] } };
+    const check = (data: Uint8Array<ArrayBuffer>) => prepareAttachments([question], answers, new Map([[id, new File([data], 'IMG_20261020_001701.jpg')]]));
+    for (const [data, code] of [
+      [Buffer.from('PK\x03\x04not an image'), 'JPEG_HEADER'],
+      [Buffer.from([255,216,255,224,0,16]), 'JPEG_END_MISSING'],
+      [Buffer.from([255,216,255,224,255,217,0,0]), 'JPEG_TRAILING_DATA'],
+    ] as const) {
+      await expect(check(data)).rejects.toMatchObject({ status: 422, message: expect.stringContaining(code), fields: { [question.id]: expect.stringContaining(code) } });
+    }
+  });
+  it('preserves JPEG bytes and accepts underscore filenames through multipart parsing', async () => {
+    const id = randomUUID(), data = Buffer.from([255,216,255,224,0,16,255,217]);
+    const answers = { [question.id]: { value: [id] } };
+    const form = new FormData(); form.append('payload', JSON.stringify({ answers }));
+    form.append('file:' + id, new File([data], 'IMG_20261020_001701.JPG', { type: 'application/octet-stream' }));
+    const parsed = await submissionBody(new Request('http://localhost', { method: 'POST', body: form }));
+    expect(parsed.payload).toEqual({ answers });
+    const prepared = await prepareAttachments([question], answers, parsed.files);
+    expect(prepared.attachments[0]).toMatchObject({ name: 'IMG_20261020_001701.JPG', mime: 'image/jpeg', size: data.length });
+    expect(Buffer.from(prepared.attachments[0].data)).toEqual(data);
+  });
+  it('records JPEG marker diagnostics without retaining the rejected photo or its filename', async () => {
+    const id = randomUUID(), diagnose = vi.fn(), data = Buffer.from([255,216,255,224,255,217,0,0]);
+    await expect(prepareAttachments([question], { [question.id]: { value: [id] } }, new Map([[id, new File([data], 'private_photo.jpg', { type: 'image/jpeg' })]]), diagnose)).rejects.toMatchObject({ status: 422 });
+    expect(diagnose).toHaveBeenCalledWith('file-rejected', expect.objectContaining({ reason: 'JPEG_TRAILING_DATA', extension: 'jpg', declaredMime: 'image/jpeg', receivedBytes: 8, jpegStart: true, jpegEndAtFileEnd: false, lastJpegEndOffset: 4, trailingBytes: 2, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }));
+    expect(JSON.stringify(diagnose.mock.calls)).not.toContain('private_photo');
+    expect(await readdir(directory)).toEqual([]);
+  });
 });
 
 it('bounds concurrent upload work and releases capacity after failures', () => {

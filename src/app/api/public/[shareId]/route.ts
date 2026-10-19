@@ -5,6 +5,7 @@ import { jsonValue, lockSurvey } from '@/lib/service';
 import { collectionState, respondent } from '@/lib/collection';
 import { validateAnswers, type Answers, type Question } from '@/lib/survey';
 import { submissionBody, prepareAttachments } from '@/lib/attachment-server';
+import { attachmentDiagnostics } from '@/lib/attachment-diagnostics';
 import { reserveUpload } from '@/lib/attachment-guard';
 import { writeAttachment, removeAttachment } from '@/lib/attachment-storage';
 import { withBasePath } from '@/lib/paths';
@@ -18,6 +19,8 @@ export function GET(req: Request, ctx: Context) { return handle(req, async () =>
   return { ...s, bannerImage: s.banner === 'custom' ? withBasePath(`/api/surveys/${s.id}/banner`) : null };
 }); }
 export function POST(req: Request, ctx: Context) { return handle(req, async () => {
+  const diagnostic = attachmentDiagnostics(req);
+  try {
   const { shareId } = await ctx.params;
   const found = await db.survey.findUnique({ where: { shareId }, select: { id: true, status: true } });
   if (!found || found.status === 'DRAFT') throw new HttpError(404, '问卷不存在');
@@ -25,6 +28,7 @@ export function POST(req: Request, ctx: Context) { return handle(req, async () =
   const releaseUpload = reserveUpload(req);
   try {
   const submission = await submissionBody(req);
+  diagnostic?.log('submission-parsed', { fileCount: submission.files.size, fileBytes: [...submission.files.values()].reduce((sum, file) => sum + file.size, 0) });
   const input = z.object({ submissionKey: z.string().uuid(), answers: z.unknown() }).parse(submission.payload);
   const written: string[] = [];
   try { return await db.$transaction(async tx => {
@@ -37,7 +41,7 @@ export function POST(req: Request, ctx: Context) { return handle(req, async () =
     if (state.availability) throw new HttpError(409, state.availabilityMessage);
     const errors = validateAnswers(s.content as unknown as Question[], input.answers);
     if (Object.keys(errors).length) throw new HttpError(422, '请检查未完成的题目', errors);
-    const prepared = await prepareAttachments(s.content as unknown as Question[], input.answers as Answers, submission.files);
+    const prepared = await prepareAttachments(s.content as unknown as Question[], input.answers as Answers, submission.files, diagnostic?.log);
     const stored = [];
     for (const { data, ...metadata } of prepared.attachments) {
       const file = await writeAttachment(data); written.push(file.storageKey);
@@ -58,4 +62,9 @@ export function POST(req: Request, ctx: Context) { return handle(req, async () =
     throw error;
   }
   } finally { releaseUpload(); }
+  } catch (error) {
+    diagnostic?.log('submission-rejected', { status: error instanceof HttpError ? error.status : error instanceof z.ZodError ? 422 : 500, reason: error instanceof HttpError ? error.message : error instanceof z.ZodError ? 'INVALID_PAYLOAD' : 'INTERNAL_ERROR' });
+    if (diagnostic && error instanceof HttpError) error.message += `（诊断编号：${diagnostic.id}）`;
+    throw error;
+  }
 }); }
