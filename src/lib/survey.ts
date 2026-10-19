@@ -27,7 +27,7 @@ export function uid(): string {
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
 }
 export function newQuestion(type: QuestionType): Question {
-  return { id: uid(), type, title: type === 'section' ? '新的分类' : '请输入题目标题', description: '', required: type !== 'section', options: choiceTypes.includes(type) ? [1, 2].map(n => ({ id: uid(), label: `选项 ${n}` })) : [], rows: type.startsWith('matrix') ? [1, 2].map(n => ({ id: uid(), label: `项目 ${n}` })) : [], other: false, ...(['single','multiple'].includes(type) ? { otherInputMode: 'multiline' as const } : {}), placeholder: '', maxLength: 500, ...(type === 'rating' ? { min: 1, max: 5 } : {}), ...(type === 'attachment' ? { fileMode: 'all' as const, maxFiles: 1, maxFileSizeMB: 10 } : {}) };
+  return { id: uid(), type, title: type === 'section' ? '新的分类' : '请输入题目标题', description: '', required: type !== 'section', options: choiceTypes.includes(type) ? [1, 2].map(n => ({ id: uid(), label: `选项 ${n}` })) : [], rows: type.startsWith('matrix') ? [1, 2].map(n => ({ id: uid(), label: `项目 ${n}` })) : [], other: false, ...(['single','multiple'].includes(type) ? { otherInputMode: 'multiline' as const } : {}), placeholder: '', maxLength: 500, ...(type === 'rating' ? { min: 1, max: 5 } : {}), ...(type === 'attachment' ? { fileMode: 'all' as const, maxFiles: 1, maxFileSizeMB: 5 } : {}) };
 }
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const validString = (v: unknown, max: number, nonempty = false) => typeof v === 'string' && v.length <= max && (!nonempty || v.trim().length > 0);
@@ -54,7 +54,7 @@ export function validateContent(content: unknown, publishing = true): Record<str
     for (const field of ['min', 'max']) if (q[field] !== undefined && (typeof q[field] !== 'number' || !Number.isFinite(q[field]))) errors[key] = '范围设置无效';
     if (q.fileMode !== undefined && (q.type !== 'attachment' || !['all','images','documents'].includes(String(q.fileMode)))) errors[key] = '附件类型设置无效';
     if (q.maxFiles !== undefined && (q.type !== 'attachment' || !Number.isInteger(q.maxFiles) || Number(q.maxFiles) < 1 || Number(q.maxFiles) > 5)) errors[key] = '每题附件数量应为 1–5 个';
-    if (q.maxFileSizeMB !== undefined && (q.type !== 'attachment' || !Number.isInteger(q.maxFileSizeMB) || Number(q.maxFileSizeMB) < 1 || Number(q.maxFileSizeMB) > 10)) errors[key] = '单个附件大小应为 1–10MB';
+    if (q.maxFileSizeMB !== undefined && (q.type !== 'attachment' || !Number.isInteger(q.maxFileSizeMB) || Number(q.maxFileSizeMB) < 1 || Number(q.maxFileSizeMB) > 5)) errors[key] = '单个附件大小应为 1–5MB';
     if (q.otherInputMode !== undefined && (!['single','multiline'].includes(String(q.otherInputMode)) || !['single','multiple'].includes(q.type))) errors[key] = '其他填空方式无效';
     if (q.datePrecision !== undefined && (!['date','minute','second'].includes(String(q.datePrecision)) || q.type !== 'date')) errors[key] = '日期精度设置无效';
     if (q.textFormat !== undefined && (!['text','phone','email'].includes(String(q.textFormat)) || q.type !== 'text')) errors[key] = '输入格式设置无效';

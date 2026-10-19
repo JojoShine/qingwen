@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, App, Button, Progress, Result, Skeleton } from 'antd';
 import { ArrowRightOutlined, CheckCircleFilled, LockOutlined, ReloadOutlined } from '@ant-design/icons';
+import { attachmentTotalBytes } from '@/lib/attachment';
 import { api, ApiError, useLoad } from '@/lib/client';
 import { initialAnswers, uid, validateAnswers, visibleContent, visibleAnswers, type Answers, type SurveyData } from '@/lib/survey';
 import Banner from './banner';
@@ -38,6 +39,7 @@ export default function PublicSurvey({ survey, preview = false }: { survey: Surv
       if (ids.length) {
         const form = new FormData(); form.append('payload', payload);
         for (const id of ids) { if (!files[id]) throw new Error('附件已失效，请重新选择'); form.append(`file:${id}`, files[id], files[id].name); }
+        if ((await new Response(form).blob()).size > attachmentTotalBytes) throw new Error('整次提交（含附件和答卷）不能超过 5MB，请减少文件大小后重试');
         body = form;
       }
       await api(`/public/${survey.shareId}`, { method: 'POST', body });

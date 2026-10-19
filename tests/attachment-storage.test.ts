@@ -1,10 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { writeAttachment, readAttachment, removeAttachment } from '../src/lib/attachment-storage';
 import { prepareAttachments, submissionBody } from '../src/lib/attachment-server';
+import { reserveUpload } from '../src/lib/attachment-guard';
 import { attachmentError } from '../src/lib/attachment';
 import { answerText, newQuestion, validateAnswers, validateContent } from '../src/lib/survey';
 let directory: string; const previous = process.env.UPLOAD_DIR;
@@ -36,8 +37,10 @@ describe('attachment input rules', () => {
     expect(validateContent([question], true)).toEqual({});
     expect(validateAnswers([question], {})).toHaveProperty(question.id);
     expect(validateAnswers([question], { [question.id]: { value: [randomUUID(), randomUUID(), randomUUID()] } })).toHaveProperty(question.id);
-    expect(attachmentError({ name: 'x.svg', size: 10 }, question)).toContain('类型');
-    expect(attachmentError({ name: 'x.txt', size: 11 * 1024 * 1024 }, question)).toContain('10MB');
+    for (const name of ['x.svg','x.zip','x.ZIP','x.rar','x.7z','x.exe','x.doc','x.docm']) expect(attachmentError({ name, size: 10 }, question)).toContain('类型');
+    expect(validateContent([{ ...question, maxFileSizeMB: 6 }])).not.toEqual({});
+    expect(attachmentError({ name: 'x.txt', size: 6 * 1024 * 1024 }, { maxFileSizeMB: 100 })).toContain('5MB');
+    expect(attachmentError({ name: 'x.txt', size: 6 * 1024 * 1024 }, question)).toContain('5MB');
     expect(attachmentError({ name: '../x.txt', size: 10 }, question)).toContain('名称');
     expect(attachmentError({ name: 'x.txt', size: 0 }, question)).toContain('空文件');
     const id = randomUUID();
@@ -55,9 +58,34 @@ describe('attachment input rules', () => {
     const form = new FormData(); form.append('payload', JSON.stringify({ answers: {} }));
     for (let i = 0; i < 11; i++) form.append('file:' + randomUUID(), new File(['x'], 'x.txt'));
     await expect(submissionBody(new Request('http://localhost', { method: 'POST', body: form }))).rejects.toMatchObject({ status: 413 });
-    await expect(submissionBody(new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'multipart/form-data; boundary=test', 'Content-Length': String(22 * 1024 * 1024) }, body: 'x' }))).rejects.toMatchObject({ status: 413 });
+    await expect(submissionBody(new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'multipart/form-data; boundary=test', 'Content-Length': String(5 * 1024 * 1024 + 1) }, body: 'x' }))).rejects.toMatchObject({ status: 413 });
+    const oversize = new FormData(); oversize.append('payload', '{}'); oversize.append('file:' + id, new File([new Uint8Array(5 * 1024 * 1024)], 'x.txt'));
+    const encoded = new Response(oversize);
+    await expect(submissionBody(new Request('http://localhost', { method: 'POST', headers: encoded.headers, body: new Uint8Array(await encoded.arrayBuffer()) }))).rejects.toMatchObject({ status: 413 });
     const valid = new FormData(); valid.append('payload', '{"answers":{}}'); valid.append('file:' + id, new File(['hello'], 'x.txt'));
     const parsed = await submissionBody(new Request('http://localhost', { method: 'POST', body: valid }));
     expect(parsed.files.get(id)?.name).toBe('x.txt');
   });
+});
+
+it('bounds concurrent upload work and releases capacity after failures', () => {
+  const request = new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'multipart/form-data; boundary=test' }, body: 'x' });
+  const release = Array.from({ length: 4 }, () => reserveUpload(request));
+  try { expect(() => reserveUpload(request)).toThrow('上传较多'); }
+  finally { release.forEach(done => { done(); done(); }); }
+  reserveUpload(request)();
+});
+
+it('checks received bytes even when a client lies about Content-Length', async () => {
+  const request = new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'multipart/form-data; boundary=test', 'Content-Length': '1' }, body: new Uint8Array(5 * 1024 * 1024 + 1) });
+  await expect(submissionBody(request)).rejects.toMatchObject({ status: 413 });
+});
+it('cancels stalled upload streams rather than keeping a slot indefinitely', async () => {
+  vi.useFakeTimers();
+  try {
+    const request = new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'multipart/form-data; boundary=test' }, body: new ReadableStream(), duplex: 'half' } as RequestInit & { duplex: string });
+    const result = expect(submissionBody(request)).rejects.toMatchObject({ status: 408 });
+    await vi.advanceTimersByTimeAsync(30_000);
+    await result;
+  } finally { vi.useRealTimers(); }
 });

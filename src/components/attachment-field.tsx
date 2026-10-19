@@ -24,7 +24,7 @@ export default function AttachmentField({ question: q, answer, files, onFilesCha
     if (ids.length + selected.length > max) { message.warning(`本题最多选择 ${max} 个附件，请先移除已有文件`); return; }
     for (const file of selected) { const error = attachmentError(file, q); if (error) { message.error(`${file.name}：${error}`); return; } }
     const existing = Object.values(files);
-    if (existing.length + selected.length > attachmentTotalFiles || [...existing,...selected].reduce((size, file) => size + file.size, 0) > attachmentTotalBytes) { message.warning('每份答卷附件最多 10 个，合计不超过 20MB'); return; }
+    if (existing.length + selected.length > attachmentTotalFiles || [...existing,...selected].reduce((size, file) => size + file.size, 0) > attachmentTotalBytes) { message.warning('每份答卷附件最多 10 个，合计不超过 5MB'); return; }
     const entries = selected.map(file => [uid(), file] as const);
     onFilesChange?.({ ...files, ...Object.fromEntries(entries) });
     onChange({ value: [...ids, ...entries.map(([id]) => id)] });
@@ -36,9 +36,9 @@ export default function AttachmentField({ question: q, answer, files, onFilesCha
     {images && <><input ref={photos} hidden style={{ display: 'none' }} type="file" accept={attachmentAccept('images')} multiple={max > 1} disabled={blocked} aria-label={`${q.title}：选择照片`} onChange={e => input(e.target.files, e.target)}/><input ref={camera} hidden style={{ display: 'none' }} type="file" accept="image/*" capture="environment" disabled={blocked} aria-label={`${q.title}：拍照`} onChange={e => input(e.target.files, e.target)}/></>}
     <div className={`attachment-dropzone ${dragging ? 'is-dragging' : ''} ${blocked ? 'is-disabled' : ''}`} role="group" aria-label={`${q.title}：附件选择区`} onDragOver={e => { e.preventDefault(); if (!blocked) setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={e => { e.preventDefault(); setDragging(false); add(Array.from(e.dataTransfer.files)); }}>
       <UploadOutlined className="attachment-upload-icon"/><div className="attachment-actions"><Button icon={<FileOutlined/>} disabled={blocked || ids.length >= max} onClick={() => picker.current?.click()}>选择文件</Button>{images && <><Button className="attachment-mobile-action" icon={<PictureOutlined/>} disabled={blocked || ids.length >= max} onClick={() => photos.current?.click()}>相册</Button><Button className="attachment-mobile-action" icon={<CameraOutlined/>} disabled={blocked || ids.length >= max} onClick={() => camera.current?.click()}>拍照</Button></>}</div>
-      <span className="attachment-drag-hint">也可以将文件拖拽到这里</span><p>{q.fileMode === 'images' ? '仅图片' : q.fileMode === 'documents' ? '仅文档及 ZIP' : '图片、文档及 ZIP'} · 最多 {max} 个 · 单个不超过 {q.maxFileSizeMB ?? 10}MB</p>
+      <span className="attachment-drag-hint">也可以将文件拖拽到这里</span><p>{q.fileMode === 'images' ? '仅图片' : q.fileMode === 'documents' ? '仅文档' : '图片与文档'} · 最多 {max} 个 · 单个不超过 {q.maxFileSizeMB ?? 5}MB</p>
     </div>
     {!!ids.length && <ul className="attachment-list" aria-label="已选择的附件">{ids.map(id => files[id] && <SelectedFile key={id} file={files[id]} disabled={blocked} remove={() => { const next = { ...files }; delete next[id]; onFilesChange?.(next); onChange({ value: ids.filter(value => value !== id) }); }}/>)}</ul>}
-    <p className="attachment-note">附件随答卷提交，合计不超过 20MB。{images && 'HEIC / HEIF 可上传，预览能力取决于浏览器。'}</p>
+    <p className="attachment-note">整次提交（含附件和答卷）不超过 5MB，不支持压缩包。{images && 'HEIC / HEIF 可上传，预览能力取决于浏览器。'}</p>
   </div>;
 }

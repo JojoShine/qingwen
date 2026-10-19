@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, unlink } from 'node:fs/promises';
+import { mkdir, open, readFile, statfs, unlink } from 'node:fs/promises';
 import path from 'node:path';
 
 export function uploadsDirectory() {
@@ -15,6 +15,8 @@ async function syncDirectory() {
 }
 export async function writeAttachment(data: Uint8Array) {
   await mkdir(uploadsDirectory(), { recursive: true, mode: 0o700 });
+  const space = await statfs(uploadsDirectory());
+  if (space.bavail * space.bsize < data.byteLength + 512 * 1024 * 1024) throw new Error('附件存储可用空间不足');
   const storageKey = randomUUID();
   const file = await open(filePath(storageKey), 'wx', 0o600);
   try {

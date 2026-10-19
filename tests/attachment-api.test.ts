@@ -36,6 +36,10 @@ describe.skipIf(process.env.RUN_INTEGRATION !== '1')('attachment submission and 
   });
   it('rejects invalid contents without saving responses or files', async () => {
     expect((await upload(new File(['bad'], 'x.png'))).status).toBe(422);
+    for (const name of ['x.zip','x.rar','x.7z','x.docm','x.exe']) expect((await upload(new File(['blocked'], name))).status).toBe(422);
+    const archive = await readFile(new URL('./fixtures/archive-renamed.docx', import.meta.url));
+    expect((await upload(new File([archive], 'report.docx'))).status).toBe(422);
+    expect((await upload(new File([new Uint8Array(5 * 1024 * 1024)], 'too-large.txt'))).status).toBe(413);
     expect(await db.response.count({ where: { surveyId } })).toBe(0);
     expect(await db.attachment.count({ where: { response: { surveyId } } })).toBe(0);
   });

@@ -5,6 +5,7 @@ import { jsonValue, lockSurvey } from '@/lib/service';
 import { collectionState, respondent } from '@/lib/collection';
 import { validateAnswers, type Answers, type Question } from '@/lib/survey';
 import { submissionBody, prepareAttachments } from '@/lib/attachment-server';
+import { reserveUpload } from '@/lib/attachment-guard';
 import { writeAttachment, removeAttachment } from '@/lib/attachment-storage';
 import { withBasePath } from '@/lib/paths';
 type Context = { params: Promise<{ shareId: string }> };
@@ -21,6 +22,8 @@ export function POST(req: Request, ctx: Context) { return handle(req, async () =
   const found = await db.survey.findUnique({ where: { shareId }, select: { id: true, status: true } });
   if (!found || found.status === 'DRAFT') throw new HttpError(404, '问卷不存在');
   const identity = await respondent(req);
+  const releaseUpload = reserveUpload(req);
+  try {
   const submission = await submissionBody(req);
   const input = z.object({ submissionKey: z.string().uuid(), answers: z.unknown() }).parse(submission.payload);
   const written: string[] = [];
@@ -54,4 +57,5 @@ export function POST(req: Request, ctx: Context) { return handle(req, async () =
     }
     throw error;
   }
+  } finally { releaseUpload(); }
 }); }

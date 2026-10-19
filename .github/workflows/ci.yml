@@ -180,7 +180,7 @@ jobs:
               assert(created.ok, 'Survey must be created in embedded PostgreSQL');
               const survey = await created.json();
               const id = crypto.randomUUID();
-              const question = { id, type: 'attachment', title: 'CI attachment', description: '', required: true, options: [], rows: [], other: false, placeholder: '', maxLength: 500, fileMode: 'all', maxFiles: 1, maxFileSizeMB: 10 };
+              const question = { id, type: 'attachment', title: 'CI attachment', description: '', required: true, options: [], rows: [], other: false, placeholder: '', maxLength: 500, fileMode: 'all', maxFiles: 1, maxFileSizeMB: 5 };
               assert((await fetch(base + '/api/surveys/' + survey.id, { method: 'PATCH', headers, body: JSON.stringify({ content: [question] }) })).ok);
               assert((await fetch(base + '/api/surveys/' + survey.id + '/action', { method: 'POST', headers, body: JSON.stringify({ action: 'publish' }) })).ok);
               const fileId = crypto.randomUUID(), form = new FormData();
