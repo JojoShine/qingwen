@@ -145,6 +145,8 @@
 /* Mobile content fills the screen; safe areas belong to the preview shell. */
 .public-question{margin-bottom:12px;padding-top:8px;padding-bottom:8px}
 .public-question-title{margin-bottom:12px}
+/* Textarea counts sit outside the control; reserve their line in the layout. */
+.public-question .ant-input-textarea-show-count,.editor-field-preview .ant-input-textarea-show-count{margin-bottom:1.65em}
 .public-intro h1{margin:12px 0 10px}
 .public-form-meta{margin-top:12px}
 .form-progress{margin:18px 0 20px;padding-top:12px}
