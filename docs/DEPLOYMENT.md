@@ -511,77 +511,80 @@ docker build --target runner --build-arg NEXT_PUBLIC_BASE_PATH=/surveys -t qingw
 
 ## 附录：当前正式环境
 
-当前版本于 **2026-10-18 01:30（Asia/Shanghai）** 部署，并于 **01:34** 完成正式验收。以下配置已通过实际容器和 `/opt/qingwen/release.json` 核对：
+当前版本于 **2026-10-19 20:06（Asia/Shanghai）** 部署，并于 **20:07** 完成正式验收。以下信息已通过运行容器及 `/opt/qingwen/release.json` 核对：
 
 | 项目 | 当前实际配置 |
 | --- | --- |
 | 入口 | `https://tbtparent.me/surveys/login` |
 | 部署目录与文件 | `/opt/qingwen`；`compose.prod.yaml`、`.env.docker` |
-| Compose 项目 / 服务 / 容器 | `qingwen` / `app` / `qingwen-app-1`，仅一个业务容器 |
-| 当前应用版本 | 提交 `d115927cd777576f9d74f86ca23d82854b2e420e`，`/surveys` 变体；包含黑白分享二维码与中心 Logo 上传 |
-| 实际运行镜像 | `ghcr.io/jojoshine/qingwen:sha-d115927cd777576f9d74f86ca23d82854b2e420e-surveys` |
-| 数据库 | 容器内 PostgreSQL 17.11，库名及角色均为 `survey`；未配置外部 `DATABASE_URL` |
-| 数据卷 | `qingwen_qingwen_data` → `/var/lib/postgresql/data` |
-| 应用端口 | 宿主机 `127.0.0.1:3218` → 容器 `3000`；数据库端口不向宿主机发布 |
-| 独立 Nginx 配置 | `/etc/nginx/business/tbtparent-me/qingwen.conf`，沿用原 `/surveys` 代理和证书 |
-| 发布记录 | `/opt/qingwen/release.json`，记录镜像摘要、版本、数据卷、备份和验证结果 |
-| 最近升级备份 | `/opt/qingwen/backups/20261017T172943Z-d115927-qr-logo/` |
+| Compose 项目 / 服务 / 容器 | `qingwen` / `app` / `qingwen-app-1`，一个业务容器 |
+| 当前应用版本 | 提交 `d9c2458df7b9072395d55720e328e103bfdddacc`，`/surveys` 变体；包含附件上传、持久化和完整备份恢复 |
+| 实际运行镜像 | `ghcr.io/jojoshine/qingwen:sha-d9c2458df7b9072395d55720e328e103bfdddacc-surveys` |
+| 数据库 | 内置 PostgreSQL 17，库名及角色为 `survey`，未使用外部 `DATABASE_URL` |
+| 数据库卷 | `qingwen_qingwen_data` → `/var/lib/postgresql/data`，沿用原卷 |
+| 附件卷 | `qingwen_qingwen_uploads` → `/var/lib/qingwen/uploads` |
+| 应用端口 | `127.0.0.1:3218` → 容器 `3000`；数据库不向宿主机发布 |
+| 独立 Nginx 配置 | `/etc/nginx/business/tbtparent.me/qingwen.conf`，沿用实际生效文件、原路由及证书 |
+| 上传上限 | Nginx `client_max_body_size 5m`；应用和前端同步限制整个请求最多 5MiB（含表单） |
+| 发布记录 | `/opt/qingwen/release.json` |
+| 升级前最终备份 | `/opt/qingwen/backups/20261019T120550Z-d9c2458-attachments/` |
 
-原宿主机 PostgreSQL 14.24 的 `qingwen` 库已迁入内置数据库，全部表的行数和内容摘要一致；原账号密码、问卷及答卷保留。旧库和旧部署配置继续留作回退依据，不再承担当前应用读写。旧 `.env.external-db` 与 `compose.external-db.yaml` 不用于日常启动、升级或备份。
+### 本次备份与数据核对
 
-本次升级前的备份位于 `/opt/qingwen/backups/20261017T172943Z-d115927-qr-logo/`，包含 `qingwen.dump`、校验文件、升级前环境与 Compose、Nginx 配置及发布记录。备份已在独立临时数据库试恢复；同目录还保存 `qr-browser-verification.json`、`concurrent-write-audit.json` 和验收后的 `release.deployed.json`。
+升级前先制作在线备份并在隔离项目中试恢复，确认原账号可登录、4 份问卷可读取；停写后再制作数据库与附件卷的完整备份，成功后才切换正式容器。最终备份目录包含：
 
-历史 GHCR 地址切换前的备份位于 `/opt/qingwen/backups/20261017T170503Z-ghcr-registry-switch/`，包含 `qingwen.dump`、`qingwen.dump.sha256`、切换前的 `.env.docker`、`compose.prod.yaml`、`release.json`、`image-reference.txt` 和业务表校验记录。该目录中的镜像引用为切换前的同版本 Docker Hub 地址，用于回退核对。
+- `qingwen-backup.tar` 及 `.sha256`：停写时的数据库、附件归档及内部校验和。
+- `qingwen.dump`：从完整归档中取出的同一份数据库备份，用于独立审计库试恢复。
+- `.env.docker`、`compose.prod.yaml`、`qingwen.nginx.conf`、`release.json`：升级前配置和发布记录。
+- `image-verified.json`、`release.deployed.json`：固定镜像摘要和此次上线记录。
+- `data-verification.json`、`attachment-browser-verification.json`：数据核对和实际浏览器验收结果。
 
-首次迁移到内置 PostgreSQL 的历史备份仍保留在 `/opt/qingwen/backups/20261017T163140Z-56260bc-embedded/`。目录时间戳使用 UTC，与北京时间相差 8 小时。其中：
+原有 **2 个用户、4 份问卷、1 份答卷**已与最终备份试恢复后的数据逐行核对，原字段与答案保持一致。新增迁移 `202610190001_response_attachments` 已成功执行；原账号密码、数据库卷、端口及 `/surveys` 路径保留。上线验收用的临时问卷和答卷已删除。
 
-- `qingwen-final.dump`：停写后的最终数据库归档；已完成试恢复和逐表校验。
-- `.env.external-db`、`compose.external-db.yaml`、`release.json`：切换前配置与发布记录。
-- `.env.embedded`、`compose.embedded.yaml`、`release.embedded.json`：切换后的内置数据库配置与发布记录。
-- `qingwen.nginx.conf`、校验结果和迁移日志：原 Nginx 配置及本次迁移依据。
+首份在线备份保存在 `/opt/qingwen/backups/20261019T113645Z-340ab71-attachments/`，其中 `qingwen-online.dump` 对应升级前的在线快照；停写后的最终恢复依据是上表中的 `qingwen-backup.tar`。目录时间戳使用 UTC，与北京时间相差 8 小时。
 
-日常新增备份按[备份](#备份)步骤执行，文件名为 `qingwen.dump`、`.env.docker` 和 `compose.prod.yaml`；不要与首次迁移备份的命名混淆。备份和环境文件含业务数据或凭据，仅保存于受限目录，不提交到仓库。
+这些备份当前保存在同一台服务器，**尚未配置异机定时备份**；不能据此声称已能抵御整盘故障。备份及环境文件含业务数据或凭据，仅保存在受限目录，不提交到 Git。
 
-### 当前 GHCR 镜像与历史传输记录
+### 当前 GHCR 镜像与验收
 
-本次部署在 [CI 与镜像发布](https://github.com/JojoShine/qingwen/actions/runs/39053117001)全部成功后，拉取并核对上表中的固定版本，再备份数据和配置、重建容器。新增迁移 `202610180001_qr_logo` 已成功执行。当前 `.env.docker` 的 `QINGWEN_IMAGE` 和运行容器均使用该 GHCR 地址，未使用 `latest`；内置 PostgreSQL 数据卷、端口和 `/surveys` 路径保持不变，Nginx 未改动。
+[CI 与镜像发布](https://github.com/JojoShine/qingwen/actions/runs/39247155943)全部成功后才部署此固定版本。CI 包括 **101 项单元/接口检查、20 项浏览器检查**（另有 1 项可选局域网检查未启用），以及根路径和 `/surveys` 两个镜像的容器重建、附件持久化和完整备份恢复验收。
 
-部署后容器健康，原用户、问卷内容和答卷通过备份试恢复及逐字段核对，保留上线期间的新写入。HTTPS 登录页、静态资源、管理员登录、问卷、结果页及公开填写页均验证正常。黑白二维码、Logo 上传、刷新后保留、下载、移除及手机宽度显示已在正式页面验收，两种下载的二维码均被原生识别器解码到同一 `/surveys` 地址；临时验收问卷已删除。
+正式 HTTPS 页面已实际验证：
 
-本次官方 GHCR 的大镜像层下载超时，通过 `ghcr.nju.edu.cn` 按官方摘要取得相同镜像层后，再次完成官方 `ghcr.io` 拉取与摘要登记；镜像索引、平台 manifest 和配置摘要均已核对。正式环境使用官方 GHCR 地址，没有在服务器上传源码或构建镜像。首次迁移到内置 PostgreSQL 时也曾使用经摘要核验的 GHCR 缓存传输，历史记录仍保留在对应备份目录中。
+- 草稿预览可以选择附件和校验，预览不会保存答卷。
+- 手机选择图片与文档，超过原 2MB 限制的有效请求可正常提交；移动端优先的问卷也能在 PC 填写和拖拽文件。
+- 已提交图片可在答卷详情中放大预览，图片和文档都能通过浏览器下载，下载内容的 SHA-256 与上传内容一致。
+- 超过 5MiB 的请求、ZIP、改名 DOCX 的普通压缩包及宏文档均被拒绝；匿名访问附件返回 401。
 
-当前固定版本的核验值为：
+本次官方 GHCR 大文件层下载超时，按官方索引摘要通过 `ghcr.nju.edu.cn` 取得相同镜像层后，已再次完成官方 `ghcr.io` 拉取与摘要登记。正式配置使用上表中的官方 GHCR 地址，没有上传应用源码或在服务器构建镜像。核验值为：
 
 ```text
-GHCR 镜像索引：sha256:6e7a41ddd822587b68dcff619d6452529097dd62e2a8210deee5d13785c4b823
-linux/amd64 平台 manifest：sha256:7e16b773daddd695d07e1ac483ba94d007c1a435a798066eb9d5e97a2fa58a16
-linux/amd64 镜像配置（docker image inspect 的 Id）：sha256:6e80db0f3958e8634b0142f7dbd341ef3c88815f8a5c40d981231f1ab415cf13
+GHCR 镜像索引：sha256:18fb5d6f453b449b83374c64c843cc8b57b4fef93d6cd324e528f7d440c42545
+linux/amd64 平台 manifest：sha256:0bf114e8fe9ea1acb57decb8ddad4c7d806cc4ad5446f53e69e9bf0274146f36
+linux/amd64 镜像配置：sha256:429e1d98467a6eec959ad8e8165198d99670f0bb0cdd0ecd5ee5801f65bd552f
 ```
 
-上述历史传输记录不表示其他加速源可直接信任。遇到直连失败时先处理网络或确认替代传输方式，核对官方摘要后再使用本地已加载镜像。索引摘要与镜像配置 Id 属于不同对象，不能相互比较。
-
-文档推送和 CI 发布不会自动 SSH 更新服务器。新 `latest` 不代表正式环境已升级；以 `release.json` 与运行容器为准。Compose 本身不自动维护发布记录，每次实际发布需同步记录提交、镜像、备份位置和验证结果。
+任何其他镜像副本都必须单独核对官方摘要；索引摘要与镜像配置 Id 属于不同对象，不能互相比较。文档提交不会自动更新正式容器，正式版本以 `release.json` 和运行容器为准，不能用 `latest` 推断。
 
 ### 正式服务器的 Nginx 加载方式
 
-`https://tbtparent.me/surveys` 与已有业务共用域名和证书。使用 `-surveys` 应用镜像，将仓库中的 [Nginx 示例](../deploy/nginx/qingwen.conf.example) 保存为独立配置 `/etc/nginx/business/tbtparent-me/qingwen.conf`，在现有 HTTPS `server` 内加载，不新增同域名的 `server` 块。
+当前实际入口由 `/etc/nginx/conf.d/20-tbtparent.me.conf` 加载 `/etc/nginx/business/tbtparent.me/*.conf`。轻问使用 `/etc/nginx/business/tbtparent.me/qingwen.conf`（点号目录中的实际文件）；本次沿用该位置，没有重新建立旧记录中的连字符目录或符号链接。
 
-现有主配置包含 `/etc/nginx/business/tbtparent.me/*.conf`（点号目录）。为保留该入口，并将实际配置放在要求的连字符目录中，建立单个文件的符号链接：
+此次该业务片段唯一的内容变化是 `client_max_body_size 2m` → `5m`，配置检查成功后已平滑重载。`location = /surveys` 和 `location ^~ /surveys/` 仍代理到 `http://127.0.0.1:3218`，`proxy_pass` 不增加尾部 `/`，继续保留 `/surveys` URI；域名、证书和其他业务路径未改动。
 
 ```sh
-sudo mkdir -p /etc/nginx/business/tbtparent-me /etc/nginx/business/tbtparent.me
-sudo curl -fsSL https://raw.githubusercontent.com/JojoShine/qingwen/main/deploy/nginx/qingwen.conf.example -o /etc/nginx/business/tbtparent-me/qingwen.conf
-sudo ln -s /etc/nginx/business/tbtparent-me/qingwen.conf /etc/nginx/business/tbtparent.me/qingwen.conf
-sudo nginx -t
-# 仅在配置检查成功后重新加载。
-sudo systemctl reload nginx
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
-已有该链接时无需重复创建；若同名文件已存在，先核对内容，不覆盖现有业务配置。确保上述通配符入口位于该域名的 HTTPS `server` 内，且该配置只加载一次。
+需要修改时先确认实际 `include` 和已有文件，不用示例覆盖其他业务。当前配置 SHA-256 为 `5151b0f20978168ce515262a9ee41e28edb857e9b97cad5ce5c7698238f5570e`。`APP_URL` 默认留空；若固定为 `https://tbtparent.me`，应用会自动附加 `/surveys`。
 
-示例使用 `location = /surveys` 和 `location ^~ /surveys/`，均代理到 `http://127.0.0.1:3218`，`proxy_pass` 后不加 `/`，保留原始 `/surveys` URI。`^~` 避免静态资源被现有正则 location 截获；其他业务路径继续由原配置处理。
+### 历史发布记录
 
-配置完成后通过 `https://tbtparent.me/surveys` 登录，检查页面、静态资源、接口、分享链接与匿名填写。`APP_URL` 默认留空；如确需固定，可填 `https://tbtparent.me`，应用会自动附加 `/surveys`。
+- **2026-10-18 黑白二维码与中心 Logo**：应用提交 `d115927cd777576f9d74f86ca23d82854b2e420e`，备份 `/opt/qingwen/backups/20261017T172943Z-d115927-qr-logo/`；该目录仍保留二维码浏览器、解码及并发写入核对记录。
+- **切换 GHCR 地址**：备份 `/opt/qingwen/backups/20261017T170503Z-ghcr-registry-switch/`，包含切换前的 Docker Hub 镜像引用、配置及校验记录。
+- **首次迁入内置 PostgreSQL**：备份 `/opt/qingwen/backups/20261017T163140Z-56260bc-embedded/`，数据库名为 `qingwen-final.dump`，新配置为 `.env.embedded` 与 `compose.embedded.yaml`。原宿主机 PostgreSQL 14.24 的 `qingwen` 库及旧配置继续保留作回退依据，不承担当前应用读写。
+
+日常备份使用前文的 `qingwen-backup.tar`、`.env.docker` 和 `compose.prod.yaml`。跨版本恢复应先使用新的隔离数据卷试恢复，再安排切换；`pg_restore --clean` 只处理归档中的对象，不会自动删除新版新增的表，不能直接把旧版备份当作当前数据库的完整降级操作。
 
 ## 参考
 
