@@ -511,75 +511,73 @@ docker build --target runner --build-arg NEXT_PUBLIC_BASE_PATH=/surveys -t qingw
 
 ## 附录：当前正式环境
 
-当前版本于 **2026-10-19 20:06（Asia/Shanghai）** 部署，并于 **20:07** 完成正式验收。以下信息已通过运行容器及 `/opt/qingwen/release.json` 核对：
+当前版本于 **2026-10-19 21:56（Asia/Shanghai）** 部署，并于 **21:58** 完成验收。以下信息已通过运行容器及 `/opt/qingwen/release.json` 核对：
 
 | 项目 | 当前实际配置 |
 | --- | --- |
 | 入口 | `https://tbtparent.me/surveys/login` |
 | 部署目录与文件 | `/opt/qingwen`；`compose.prod.yaml`、`.env.docker` |
 | Compose 项目 / 服务 / 容器 | `qingwen` / `app` / `qingwen-app-1`，一个业务容器 |
-| 当前应用版本 | 提交 `d9c2458df7b9072395d55720e328e103bfdddacc`，`/surveys` 变体；包含附件上传、持久化和完整备份恢复 |
-| 实际运行镜像 | `ghcr.io/jojoshine/qingwen:sha-d9c2458df7b9072395d55720e328e103bfdddacc-surveys` |
+| 当前应用版本 | 提交 `45aa4b4bda26e625c9e86f99d2a90059304cc0b4`，`/surveys` 变体；包含附件数量提示澄清、多行输入框字数统计间距修复及键盘拖拽测试时序修正 |
+| 实际运行镜像 | `ghcr.io/jojoshine/qingwen:sha-45aa4b4bda26e625c9e86f99d2a90059304cc0b4-surveys` |
 | 数据库 | 内置 PostgreSQL 17，库名及角色为 `survey`，未使用外部 `DATABASE_URL` |
 | 数据库卷 | `qingwen_qingwen_data` → `/var/lib/postgresql/data`，沿用原卷 |
-| 附件卷 | `qingwen_qingwen_uploads` → `/var/lib/qingwen/uploads` |
+| 附件卷 | `qingwen_qingwen_uploads` → `/var/lib/qingwen/uploads`，沿用原卷 |
 | 应用端口 | `127.0.0.1:3218` → 容器 `3000`；数据库不向宿主机发布 |
-| 独立 Nginx 配置 | `/etc/nginx/business/tbtparent.me/qingwen.conf`，沿用实际生效文件、原路由及证书 |
-| 上传上限 | Nginx `client_max_body_size 5m`；应用和前端同步限制整个请求最多 5MiB（含表单） |
+| 独立 Nginx 配置 | `/etc/nginx/business/tbtparent.me/qingwen.conf`，本次未修改 |
+| 上传上限 | 每题按设置最多 5 个，整份答卷的图片和附件合计最多 10 个；整个请求最多 5MiB（含表单），Nginx 保持 `client_max_body_size 5m` |
 | 发布记录 | `/opt/qingwen/release.json` |
-| 升级前最终备份 | `/opt/qingwen/backups/20261019T120550Z-d9c2458-attachments/` |
+| 本次升级前完整备份 | `/opt/qingwen/backups/20261019T135629Z-45aa4b4-textarea-spacing/` |
 
 ### 本次备份与数据核对
 
-升级前先制作在线备份并在隔离项目中试恢复，确认原账号可登录、4 份问卷可读取；停写后再制作数据库与附件卷的完整备份，成功后才切换正式容器。最终备份目录包含：
+镜像下载并核对摘要后，先停止应用写入，使用原镜像制作数据库与附件卷的完整备份；校验成功后才切换到新镜像。此次没有新增数据库迁移，原数据卷、Compose、端口及 `/surveys` 路径均保留。当前备份目录实际包含：
 
-- `qingwen-backup.tar` 及 `.sha256`：停写时的数据库、附件归档及内部校验和。
-- `qingwen.dump`：从完整归档中取出的同一份数据库备份，用于独立审计库试恢复。
-- `.env.docker`、`compose.prod.yaml`、`qingwen.nginx.conf`、`release.json`：升级前配置和发布记录。
-- `image-verified.json`、`release.deployed.json`：固定镜像摘要和此次上线记录。
-- `data-verification.json`、`attachment-browser-verification.json`：数据核对和实际浏览器验收结果。
+- `qingwen-backup.tar`、`qingwen-backup.tar.sha256`：完整备份及外层 SHA-256；归档内为 `database.dump`、`uploads.tar` 和 `SHA256SUMS`，内外校验均通过。
+- `.env.docker`、`compose.prod.yaml`、`qingwen.nginx.conf`、`release.json`：升级前的配置和发布记录。
+- `image-metadata.json`、`release.deployed.json`：本次镜像摘要及更新后的上线、验收记录。
+- `backup.log`、`stop.log`、`start.log`、`qingwen-spacing-pull.log`、`qingwen-spacing-import.log`：备份、切换及镜像传输日志。
 
-原有 **2 个用户、4 份问卷、1 份答卷**已与最终备份试恢复后的数据逐行核对，原字段与答案保持一致。新增迁移 `202610190001_response_attachments` 已成功执行；原账号密码、数据库卷、端口及 `/surveys` 路径保留。上线验收用的临时问卷和答卷已删除。
-
-首份在线备份保存在 `/opt/qingwen/backups/20261019T113645Z-340ab71-attachments/`，其中 `qingwen-online.dump` 对应升级前的在线快照；停写后的最终恢复依据是上表中的 `qingwen-backup.tar`。目录时间戳使用 UTC，与北京时间相差 8 小时。
+升级前后均为 **2 个用户、4 份问卷、1 份答卷、0 个附件记录**，数据库卷与附件卷映射一致。这次仅核对了升级前后的记录数量和卷映射，没有重新执行历史版本的逐行恢复审计。完整归档的内部校验和、外层校验和以及镜像启动时的附件完整性检查均通过。目录时间戳使用 UTC，与北京时间相差 8 小时。
 
 这些备份当前保存在同一台服务器，**尚未配置异机定时备份**；不能据此声称已能抵御整盘故障。备份及环境文件含业务数据或凭据，仅保存在受限目录，不提交到 Git。
 
 ### 当前 GHCR 镜像与验收
 
-[CI 与镜像发布](https://github.com/JojoShine/qingwen/actions/runs/39247155943)全部成功后才部署此固定版本。CI 包括 **101 项单元/接口检查、20 项浏览器检查**（另有 1 项可选局域网检查未启用），以及根路径和 `/surveys` 两个镜像的容器重建、附件持久化和完整备份恢复验收。
+[本次 CI 与镜像发布](https://github.com/JojoShine/qingwen/actions/runs/39260145261)全部成功后才部署此固定版本，包括生产构建、单元/接口检查、浏览器检查，以及根路径和 `/surveys` 两个镜像的容器重建、附件持久化和完整备份恢复验证。
 
-正式 HTTPS 页面已实际验证：
+正式部署后的核对结果：
 
-- 草稿预览可以选择附件和校验，预览不会保存答卷。
-- 手机选择图片与文档，超过原 2MB 限制的有效请求可正常提交；移动端优先的问卷也能在 PC 填写和拖拽文件。
-- 已提交图片可在答卷详情中放大预览，图片和文档都能通过浏览器下载，下载内容的 SHA-256 与上传内容一致。
-- 超过 5MiB 的请求、ZIP、改名 DOCX 的普通压缩包及宏文档均被拒绝；匿名访问附件返回 401。
+- 容器健康，内部 `/surveys/login` 与正式 HTTPS 登录页均返回 HTTP 200。
+- 正式域名返回的新 CSS 包含多行输入框字数统计的留白规则；使用该 CSS 在 390px 手机宽度和 1280px PC 宽度的浏览器布局中核对，字数统计与下方分类标题相距 22px，均无横向溢出。
+- 数据库、附件卷映射、Compose 文件和 Nginx 配置均保持不变；附件数量、大小和类型规则未改动。
 
-本次官方 GHCR 大文件层下载超时，按官方索引摘要通过 `ghcr.nju.edu.cn` 取得相同镜像层后，已再次完成官方 `ghcr.io` 拉取与摘要登记。正式配置使用上表中的官方 GHCR 地址，没有上传应用源码或在服务器构建镜像。核验值为：
+本次 GHCR 直连下载超时，按官方索引摘要从 `ghcr.nju.edu.cn` 获取相同镜像内容；其中一个镜像层通过独立下载校验后，由仅绑定服务器 `127.0.0.1` 的临时传输桥接交给 Docker。索引、镜像配置、提交标识和 `/surveys` 构建路径均已核对，桥接完成后关闭，临时镜像别名及下载文件已清理。正式配置仍使用上表中的官方 GHCR 地址，没有在服务器构建镜像，也未修改系统 DNS 或 Docker 配置。核验值为：
 
 ```text
-GHCR 镜像索引：sha256:18fb5d6f453b449b83374c64c843cc8b57b4fef93d6cd324e528f7d440c42545
-linux/amd64 平台 manifest：sha256:0bf114e8fe9ea1acb57decb8ddad4c7d806cc4ad5446f53e69e9bf0274146f36
-linux/amd64 镜像配置：sha256:429e1d98467a6eec959ad8e8165198d99670f0bb0cdd0ecd5ee5801f65bd552f
+GHCR 镜像索引：sha256:a2b70f6538adb7a838e6f822a71eeda567c6cdee178739d3e7bc4682ace618fd
+linux/amd64 平台 manifest：sha256:a5908f0ea16f1932b8f082dd628e54908122f562371a145b84129b2ce186a74a
+linux/amd64 镜像配置：sha256:cde2b91ca7db547cea20acc64ab919ab37b92aaccde5b6ac458b0dc490d80061
 ```
 
 任何其他镜像副本都必须单独核对官方摘要；索引摘要与镜像配置 Id 属于不同对象，不能互相比较。文档提交不会自动更新正式容器，正式版本以 `release.json` 和运行容器为准，不能用 `latest` 推断。
 
 ### 正式服务器的 Nginx 加载方式
 
-当前实际入口由 `/etc/nginx/conf.d/20-tbtparent.me.conf` 加载 `/etc/nginx/business/tbtparent.me/*.conf`。轻问使用 `/etc/nginx/business/tbtparent.me/qingwen.conf`（点号目录中的实际文件）；本次沿用该位置，没有重新建立旧记录中的连字符目录或符号链接。
+当前实际入口由 `/etc/nginx/conf.d/20-tbtparent.me.conf` 加载 `/etc/nginx/business/tbtparent.me/*.conf`。轻问使用 `/etc/nginx/business/tbtparent.me/qingwen.conf`（点号目录中的实际文件）。本次保留该文件，未修改或重载 Nginx；`client_max_body_size 5m` 沿用此前附件功能上线时的配置。
 
-此次该业务片段唯一的内容变化是 `client_max_body_size 2m` → `5m`，配置检查成功后已平滑重载。`location = /surveys` 和 `location ^~ /surveys/` 仍代理到 `http://127.0.0.1:3218`，`proxy_pass` 不增加尾部 `/`，继续保留 `/surveys` URI；域名、证书和其他业务路径未改动。
+`location = /surveys` 和 `location ^~ /surveys/` 仍代理到 `http://127.0.0.1:3218`，`proxy_pass` 不增加尾部 `/`，继续保留 `/surveys` URI；域名、证书和其他业务路径未改动。后续确需修改 Nginx 时，先确认实际 `include` 和已有文件，再检查并平滑加载：
 
 ```sh
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-需要修改时先确认实际 `include` 和已有文件，不用示例覆盖其他业务。当前配置 SHA-256 为 `5151b0f20978168ce515262a9ee41e28edb857e9b97cad5ce5c7698238f5570e`。`APP_URL` 默认留空；若固定为 `https://tbtparent.me`，应用会自动附加 `/surveys`。
+当前配置 SHA-256 为 `5151b0f20978168ce515262a9ee41e28edb857e9b97cad5ce5c7698238f5570e`。`APP_URL` 默认留空；若固定为 `https://tbtparent.me`，应用会自动附加 `/surveys`。
 
 ### 历史发布记录
 
+- **2026-10-19 21:03 附件数量提示澄清**：提交 `94ae314d37605765f3480cfa70f0974557b10768`，备份 `/opt/qingwen/backups/20261019T130332Z-94ae314-attachment-hint/`；只澄清每题与整份答卷的数量提示，上传规则未改动。
+- **2026-10-19 20:06 附件功能与上传安全限制**：提交 `d9c2458df7b9072395d55720e328e103bfdddacc`，完整备份 `/opt/qingwen/backups/20261019T120550Z-d9c2458-attachments/`；该次完成隔离恢复、原数据逐行核对，以及附件上传、预览、下载和非法文件拒绝验收。首次在线备份另存于 `/opt/qingwen/backups/20261019T113645Z-340ab71-attachments/`。新增迁移 `202610190001_response_attachments` 在该次执行，Nginx 上传上限由 `2m` 调整为 `5m`。
 - **2026-10-18 黑白二维码与中心 Logo**：应用提交 `d115927cd777576f9d74f86ca23d82854b2e420e`，备份 `/opt/qingwen/backups/20261017T172943Z-d115927-qr-logo/`；该目录仍保留二维码浏览器、解码及并发写入核对记录。
 - **切换 GHCR 地址**：备份 `/opt/qingwen/backups/20261017T170503Z-ghcr-registry-switch/`，包含切换前的 Docker Hub 镜像引用、配置及校验记录。
 - **首次迁入内置 PostgreSQL**：备份 `/opt/qingwen/backups/20261017T163140Z-56260bc-embedded/`，数据库名为 `qingwen-final.dump`，新配置为 `.env.embedded` 与 `compose.embedded.yaml`。原宿主机 PostgreSQL 14.24 的 `qingwen` 库及旧配置继续保留作回退依据，不承担当前应用读写。
